@@ -1,0 +1,17 @@
+{
+  "name": "lucky-movers",
+  "version": "1.0.0",
+  "description": "Truck booking system",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.3.1",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.0",
+    "express": "^5.2.1",
+    "mongoose": "^9.10.1",
+    "nodemailer": "^10.0.10"
+  }
+}
