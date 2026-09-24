@@ -20,7 +20,14 @@ const bookingSchema = new mongoose.Schema({
   driverName:         { type: String, default: null },
   driverCounterPrice: { type: Number, default: null },
   agreedPrice:        { type: Number, default: null },
-  rejectedDriverIds:  { type: [mongoose.Schema.Types.ObjectId], default: [] }
+  rejectedDriverIds:  { type: [mongoose.Schema.Types.ObjectId], default: [] },
+
+  // Payment fields
+  paymentMethod:      { type: String, default: null }, // MTN Mobile Money | Airtel Money | Cash on pickup
+  paymentPhone:       { type: String, default: null },
+  paymentStatus:      { type: String, default: 'unpaid' }, // unpaid | paid | refunded
+  paidAt:             { type: Date, default: null }
+
 }, { timestamps: true, strict: false });
 
 module.exports = mongoose.models.Booking || mongoose.model('Booking', bookingSchema);

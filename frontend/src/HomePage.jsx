@@ -40,6 +40,7 @@ export default function HomePage() {
         <nav className="lm-nav-links">
           <a href="/"><i className="fa-solid fa-house"></i> Home</a>
           <a href="/book" className="lm-nav-cta"><i className="fa-solid fa-truck"></i> Book Now</a>
+          <a href="/complaint"><i className="fa-solid fa-triangle-exclamation"></i> Complaint</a>
           <a href="#about"><i className="fa-solid fa-circle-info"></i> About</a>
           <a href="#contact"><i className="fa-solid fa-phone"></i> Contact</a>
         </nav>
@@ -109,6 +110,9 @@ export default function HomePage() {
         <a href="/book" className="lm-btn-primary lm-btn-lg">
           <i className="fa-solid fa-truck-fast"></i> Request a Truck
         </a>
+        <a href="/complaint" className="lm-btn-primary lm-btn-lg" style={{ marginLeft: 12, background: '#c62828' }}>
+          <i className="fa-solid fa-triangle-exclamation"></i> Report a Problem
+        </a>
       </section>
 
       <footer className="lm-footer" id="contact">
@@ -121,6 +125,7 @@ export default function HomePage() {
           <h4>Quick Links</h4>
           <p><a href="/"><i className="fa-solid fa-house"></i> Home</a></p>
           <p><a href="/book"><i className="fa-solid fa-truck"></i> Book a Truck</a></p>
+          <p><a href="/complaint"><i className="fa-solid fa-triangle-exclamation"></i> Submit a Complaint</a></p>
           <p><a href="#about"><i className="fa-solid fa-circle-info"></i> About</a></p>
         </div>
 

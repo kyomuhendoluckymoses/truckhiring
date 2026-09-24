@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 
@@ -49,6 +49,7 @@ export default function DriverPage() {
   const [jobs, setJobs] = useState([]);
   const [message, setMessage] = useState('');
 
+  // Login
   async function handleLogin(e) {
     e.preventDefault();
     setMessage('Logging in...');
@@ -89,13 +90,29 @@ export default function DriverPage() {
   }
 
   async function loadJobs(driverId) {
+    if (!driverId) return;
     try {
       const res = await fetch('http://localhost:3000/api/bookings');
       const data = await res.json();
-      const mine = (data.bookings || []).filter((b) => String(b.driverId) === String(driverId));
+
+      // Only show bookings assigned to THIS driver that are still pending action.
+      // Hide ones already Confirmed, Cancelled, etc.
+      const mine = (data.bookings || []).filter((b) => {
+        const isMine = String(b.driverId) === String(driverId);
+        const stillPending = b.status === 'Sent to driver' || b.status === 'Sent to next driver';
+        return isMine && stillPending;
+      });
+
       setJobs(mine);
     } catch (err) { console.error(err); }
   }
+
+  // Auto-refresh jobs every 3 seconds while logged in
+  useEffect(() => {
+    if (!driver?._id) return;
+    const interval = setInterval(() => loadJobs(driver._id), 3000);
+    return () => clearInterval(interval);
+  }, [driver?._id]);
 
   async function setAvailability(newStatus) {
     if (!driver) return;
@@ -116,8 +133,13 @@ export default function DriverPage() {
     try {
       const res = await fetch('http://localhost:3000/api/bookings/' + id + '/accept-driver', { method: 'POST' });
       const data = await res.json();
-      alert(res.ok ? '✅ Job accepted!' : 'Error: ' + (data.message || 'Could not accept'));
-      loadJobs(driver._id);
+      if (res.ok) {
+        // Immediately remove from list — don't wait for refresh
+        setJobs((prev) => prev.filter((j) => j._id !== id));
+        setMessage('✅ Job accepted!');
+      } else {
+        alert('Error: ' + (data.message || 'Could not accept'));
+      }
     } catch (err) { alert('❌ ' + err.message); }
   }
 
@@ -131,8 +153,13 @@ export default function DriverPage() {
         body: JSON.stringify({ newPrice: Number(newPrice) })
       });
       const data = await res.json();
-      alert(res.ok ? '✅ Counter-offer sent' : 'Error: ' + (data.message || 'Failed'));
-      loadJobs(driver._id);
+      if (res.ok) {
+        // Remove from list too — counter-offer moves it out of "pending action"
+        setJobs((prev) => prev.filter((j) => j._id !== id));
+        setMessage('✅ Counter-offer sent');
+      } else {
+        alert('Error: ' + (data.message || 'Failed'));
+      }
     } catch (err) { alert('❌ ' + err.message); }
   }
 
@@ -141,8 +168,13 @@ export default function DriverPage() {
     try {
       const res = await fetch('http://localhost:3000/api/bookings/' + id + '/reject-driver', { method: 'POST' });
       const data = await res.json();
-      alert(res.ok ? (data.message || 'Sent to next driver') : 'Error: ' + (data.message || 'Failed'));
-      loadJobs(driver._id);
+      if (res.ok) {
+        // Remove from list immediately
+        setJobs((prev) => prev.filter((j) => j._id !== id));
+        setMessage(data.message || 'Sent to next driver');
+      } else {
+        alert('Error: ' + (data.message || 'Failed'));
+      }
     } catch (err) { alert('❌ ' + err.message); }
   }
 
@@ -243,7 +275,7 @@ export default function DriverPage() {
       <h2 style={{ marginTop: 24 }}>My Assigned Jobs ({jobs.length})</h2>
 
       {jobs.length === 0 ? (
-        <p>No jobs assigned to you yet.</p>
+        <p>No jobs waiting for you. New jobs appear here automatically.</p>
       ) : (
         jobs.map((b) => (
           <Section key={b._id} title={'📦 Job ' + (b.bookingCode || b._id.slice(-6))}>
@@ -254,15 +286,8 @@ export default function DriverPage() {
             <p><strong>Truck:</strong> {b.selectedTruck}</p>
             <p><strong>Cargo:</strong> {b.cargoDescription}</p>
             <p><strong>Customer Offers:</strong> UGX {b.offeredPrice}</p>
-            {b.driverCounterPrice && (
-              <p><strong>Your counter-offer:</strong> UGX {b.driverCounterPrice}</p>
-            )}
-            {b.agreedPrice && (
-              <p><strong>✅ Agreed price:</strong> UGX {b.agreedPrice}</p>
-            )}
             <p><strong>Status:</strong> {b.status}</p>
 
-            {/* =============== MAP WITH PICKUP & DESTINATION =============== */}
             {(b.pickupCoords || b.destinationCoords) && (
               <div style={{ height: 280, borderRadius: 8, overflow: 'hidden', marginTop: 12 }}>
                 <MapContainer
@@ -278,7 +303,6 @@ export default function DriverPage() {
                     url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
                   />
                   <FitBounds pickup={b.pickupCoords} destination={b.destinationCoords} />
-
                   {b.pickupCoords && (
                     <Marker position={b.pickupCoords} icon={pickupIcon}>
                       <Popup>📦 Pickup<br />{b.pickupLocation}</Popup>
@@ -293,13 +317,11 @@ export default function DriverPage() {
               </div>
             )}
 
-            {b.status !== 'Confirmed' && (
-              <>
-                <button onClick={() => acceptJob(b._id)}>✅ Accept Job</button>
-                <button onClick={() => counterOffer(b._id)}>💬 Counter-Offer</button>
-                <button onClick={() => rejectJob(b._id)}>❌ Reject Job</button>
-              </>
-            )}
+            <div style={{ marginTop: 12 }}>
+              <button onClick={() => acceptJob(b._id)}>✅ Accept Job</button>
+              <button onClick={() => counterOffer(b._id)}>💬 Counter-Offer</button>
+              <button onClick={() => rejectJob(b._id)}>❌ Reject Job</button>
+            </div>
           </Section>
         ))
       )}

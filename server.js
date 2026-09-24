@@ -8,12 +8,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// ─────────── ROUTES ───────────
 const driverRoutes = require('./routes/drivers');
 app.use('/api/drivers', driverRoutes);
 
 const bookingRoutes = require('./routes/bookings');
 app.use('/api/bookings', bookingRoutes);
+
+// NEW: complaints (public — customers submit)
+const complaintRoutes = require('./routes/complaints');
+app.use('/api/complaints', complaintRoutes);
+
+// NEW: admin (protected by x-admin-key header)
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', adminRoutes);
 
 // Test route
 app.get('/', (req, res) => {

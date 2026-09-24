@@ -145,7 +145,6 @@ router.post('/:id/accept-driver', async (req, res) => {
 
     console.log('✅ [ACCEPT] booking saved as Confirmed');
 
-    // 📧 Email the customer — with full debug logs
     console.log('🔍 [EMAIL] checking:', {
       hasEmail: !!booking.customerEmail,
       email: booking.customerEmail,
@@ -201,6 +200,34 @@ router.post('/:id/counter-offer', async (req, res) => {
     booking.driverCounterPrice = Number(newPrice);
     await booking.save();
     res.json({ message: 'Counter-offer sent to customer', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// NEW: Customer chooses payment method after driver accepts
+router.post('/:id/choose-payment', async (req, res) => {
+  try {
+    const { paymentMethod, paymentPhone } = req.body;
+
+    if (!paymentMethod) {
+      return res.status(400).json({ message: 'Payment method required' });
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    if (booking.status !== 'Confirmed') {
+      return res.status(400).json({ message: 'Driver has not accepted yet' });
+    }
+
+    booking.paymentMethod = paymentMethod;
+    booking.paymentPhone = paymentPhone || null;
+    await booking.save();
+
+    res.json({ message: 'Payment method saved', booking });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }

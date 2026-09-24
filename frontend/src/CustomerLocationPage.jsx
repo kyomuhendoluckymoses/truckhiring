@@ -68,11 +68,15 @@ export default function CustomerLocationPage() {
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Payment section state
+  const [paymentMethod, setPaymentMethod] = useState('MTN Mobile Money');
+  const [paymentPhone, setPaymentPhone] = useState('');
+  const [paymentSaved, setPaymentSaved] = useState(false);
+
   function handleChange(e) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-  // Refresh the current booking from the backend every 3 seconds
   async function refreshBooking() {
     if (!booking?._id) return;
     try {
@@ -104,8 +108,7 @@ export default function CustomerLocationPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-
-    if (submitting) return;      // 🔒 prevent double-submit
+    if (submitting) return;
     setSubmitting(true);
 
     try {
@@ -119,6 +122,7 @@ export default function CustomerLocationPage() {
       setMessage('Creating booking...');
       setBooking(null);
       setDriver(null);
+      setPaymentSaved(false);
 
       let pickup = null;
       let dest = null;
@@ -171,16 +175,55 @@ export default function CustomerLocationPage() {
 
       if (assignRes.ok) {
         setDriver(assignData.driver);
-        setMessage('✅ Driver found!');
+        setMessage('✅ Driver found! Waiting for them to accept...');
       } else {
         setMessage('⚠️ ' + (assignData.message || 'No driver available'));
       }
     } catch (err) {
       setMessage('❌ ' + err.message);
     } finally {
-      setSubmitting(false);      // 🔓 allow submit again
+      setSubmitting(false);
     }
   }
+
+  async function submitPayment(e) {
+    e.preventDefault();
+    if (!booking?._id) return;
+
+    if (paymentMethod !== 'Cash on pickup' && !paymentPhone.trim()) {
+      alert('Please enter your mobile money number');
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        'http://localhost:3000/api/bookings/' + booking._id + '/choose-payment',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentMethod, paymentPhone: paymentPhone.trim() })
+        }
+      );
+      const data = await res.json();
+
+      if (res.ok) {
+        setBooking(data.booking);
+        setPaymentSaved(true);
+      } else {
+        alert(data.message || 'Could not save payment');
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  // Payment section shown only when driver has accepted
+  const showPaymentSection =
+    booking && booking.status === 'Confirmed' && !booking.paymentMethod;
+
+  // Show payment summary when payment is saved
+  const showPaymentSummary =
+    booking && booking.paymentMethod;
 
   return (
     <div className="lm-app">
@@ -190,6 +233,7 @@ export default function CustomerLocationPage() {
         <nav className="lm-nav-links">
           <a href="/"><i className="fa-solid fa-house"></i> Home</a>
           <a href="/book" className="lm-nav-cta"><i className="fa-solid fa-truck"></i> Book Now</a>
+          <a href="/complaint"><i className="fa-solid fa-triangle-exclamation"></i> Complaint</a>
           <a href="#contact"><i className="fa-solid fa-phone"></i> Contact</a>
         </nav>
       </header>
@@ -362,6 +406,96 @@ export default function CustomerLocationPage() {
             </div>
           </section>
         )}
+
+        {/* PAYMENT SECTION — appears only after driver accepts */}
+        {showPaymentSection && (
+          <section className="lm-result" style={{ borderLeft: '6px solid #ff6b35' }}>
+            <h3>💳 Pay for Your Move</h3>
+            <p style={{ fontSize: 18 }}>
+              <strong>Amount to pay:</strong> UGX {(booking.agreedPrice || booking.offeredPrice).toLocaleString()}
+            </p>
+            <p style={{ color: '#666', marginBottom: 16 }}>
+              Choose how you want to pay:
+            </p>
+
+            <form onSubmit={submitPayment}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="radio"
+                    name="pm"
+                    value="MTN Mobile Money"
+                    checked={paymentMethod === 'MTN Mobile Money'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  📱 MTN Mobile Money
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="radio"
+                    name="pm"
+                    value="Airtel Money"
+                    checked={paymentMethod === 'Airtel Money'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  📱 Airtel Money
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="radio"
+                    name="pm"
+                    value="Cash on pickup"
+                    checked={paymentMethod === 'Cash on pickup'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  💵 Cash on pickup
+                </label>
+              </div>
+
+              {paymentMethod !== 'Cash on pickup' && (
+                <input
+                  type="tel"
+                  placeholder="Mobile Money number (e.g. 0700123456)"
+                  value={paymentPhone}
+                  onChange={(e) => setPaymentPhone(e.target.value)}
+                  style={{ padding: 12, fontSize: 16, border: '1px solid #ddd', borderRadius: 8, width: '100%', marginBottom: 16 }}
+                />
+              )}
+
+              <button type="submit" className="lm-btn-primary">
+                Confirm Payment Method
+              </button>
+            </form>
+          </section>
+        )}
+
+        {/* PAYMENT SUMMARY — appears once payment is saved */}
+        {showPaymentSummary && (
+          <section className="lm-result" style={{ borderLeft: '6px solid #4caf50' }}>
+            <h3>💳 Payment</h3>
+            <p><strong>Amount:</strong> UGX {(booking.agreedPrice || booking.offeredPrice).toLocaleString()}</p>
+            <p><strong>Method:</strong> {booking.paymentMethod}</p>
+            {booking.paymentPhone && (
+              <p><strong>Phone:</strong> {booking.paymentPhone}</p>
+            )}
+            <p>
+              <strong>Status:</strong>{' '}
+              <span style={{
+                color: booking.paymentStatus === 'paid' ? 'green' : 'red',
+                fontWeight: 'bold'
+              }}>
+                {booking.paymentStatus === 'paid' ? '✅ Paid' : '⏳ Waiting for payment'}
+              </span>
+            </p>
+            {booking.paymentStatus !== 'paid' && (
+              <p style={{ fontSize: 13, color: '#666' }}>
+                {booking.paymentMethod === 'Cash on pickup'
+                  ? 'Pay the driver in cash when they arrive.'
+                  : 'You will receive a prompt on your phone. Or contact support.'}
+              </p>
+            )}
+          </section>
+        )}
       </div>
 
       <footer className="lm-footer">
@@ -373,6 +507,7 @@ export default function CustomerLocationPage() {
           <h4>Quick Links</h4>
           <p><a href="/"><i className="fa-solid fa-house"></i> Home</a></p>
           <p><a href="/book"><i className="fa-solid fa-truck"></i> Book a Truck</a></p>
+          <p><a href="/complaint"><i className="fa-solid fa-triangle-exclamation"></i> Complaint</a></p>
         </div>
         <div>
           <h4>Contact</h4>
