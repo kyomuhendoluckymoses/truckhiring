@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API = 'http://localhost:3000/api';
+const API = 'https://truckhiring-backend.onrender.com/api';
 
 export default function AdminPage() {
   const [key, setKey] = useState(localStorage.getItem('adminKey') || '');

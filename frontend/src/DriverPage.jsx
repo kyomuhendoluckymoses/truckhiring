@@ -54,7 +54,7 @@ export default function DriverPage() {
     e.preventDefault();
     setMessage('Logging in...');
     try {
-      const res = await fetch('http://localhost:3000/api/drivers/login', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/drivers/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -75,7 +75,7 @@ export default function DriverPage() {
     e.preventDefault();
     setMessage('');
     try {
-      const res = await fetch('http://localhost:3000/api/drivers/register', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/drivers/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(regForm)
@@ -92,7 +92,7 @@ export default function DriverPage() {
   async function loadJobs(driverId) {
     if (!driverId) return;
     try {
-      const res = await fetch('http://localhost:3000/api/bookings');
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings');
       const data = await res.json();
 
       // Only show bookings assigned to THIS driver that are still pending action.
@@ -117,7 +117,7 @@ export default function DriverPage() {
   async function setAvailability(newStatus) {
     if (!driver) return;
     try {
-      const res = await fetch('http://localhost:3000/api/drivers/' + driver._id + '/availability', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/drivers/' + driver._id + '/availability', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ availability: newStatus })
@@ -131,7 +131,7 @@ export default function DriverPage() {
   async function acceptJob(id) {
     if (!window.confirm('Accept this job as-is?')) return;
     try {
-      const res = await fetch('http://localhost:3000/api/bookings/' + id + '/accept-driver', { method: 'POST' });
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings/' + id + '/accept-driver', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         // Immediately remove from list — don't wait for refresh
@@ -147,7 +147,7 @@ export default function DriverPage() {
     const newPrice = window.prompt('Enter your counter-offer price (UGX):');
     if (!newPrice) return;
     try {
-      const res = await fetch('http://localhost:3000/api/bookings/' + id + '/counter-offer', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings/' + id + '/counter-offer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPrice: Number(newPrice) })
@@ -166,7 +166,7 @@ export default function DriverPage() {
   async function rejectJob(id) {
     if (!window.confirm('Reject this job? The system will try another driver.')) return;
     try {
-      const res = await fetch('http://localhost:3000/api/bookings/' + id + '/reject-driver', { method: 'POST' });
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings/' + id + '/reject-driver', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         // Remove from list immediately

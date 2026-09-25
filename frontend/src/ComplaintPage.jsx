@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const API = 'http://localhost:3000/api';
+const API = 'https://truckhiring-backend.onrender.com/api';
 
 export default function ComplaintPage() {
   const [form, setForm] = useState({

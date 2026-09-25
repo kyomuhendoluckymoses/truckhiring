@@ -41,8 +41,8 @@ function App() {
   async function fetchDrivers(all = false) {
     try {
       const url = all
-        ? 'http://localhost:3000/api/drivers'
-        : 'http://localhost:3000/api/drivers/available';
+        ? 'https://truckhiring-backend.onrender.com/api/drivers'
+        : 'https://truckhiring-backend.onrender.com/api/drivers/available';
       const res = await fetch(url);
       const data = await res.json();
       setDrivers(data.drivers || []);
@@ -61,7 +61,7 @@ function App() {
     setMessage('');
 
     try {
-      const res = await fetch('http://localhost:3000/api/drivers/register', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/drivers/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
@@ -91,7 +91,7 @@ function App() {
     setMessage('');
 
     try {
-      const res = await fetch('http://localhost:3000/api/drivers/login', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/drivers/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm)
@@ -123,7 +123,7 @@ function App() {
     const newStatus = current === 'available' ? 'offline' : 'available';
 
     try {
-      const res = await fetch(`http://localhost:3000/api/drivers/${id}/availability`, {
+      const res = await fetch(`https://truckhiring-backend.onrender.com/api/drivers/${id}/availability`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ availability: newStatus })

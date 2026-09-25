@@ -80,14 +80,14 @@ export default function CustomerLocationPage() {
   async function refreshBooking() {
     if (!booking?._id) return;
     try {
-      const res = await fetch('http://localhost:3000/api/bookings');
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings');
       const data = await res.json();
       const fresh = (data.bookings || []).find((b) => b._id === booking._id);
       if (fresh) {
         setBooking(fresh);
 
         if (fresh.driverId && !driver) {
-          const dRes = await fetch('http://localhost:3000/api/drivers');
+          const dRes = await fetch('https://truckhiring-backend.onrender.com/api/drivers');
           const dData = await dRes.json();
           const d = (dData.drivers || []).find(
             (x) => String(x._id) === String(fresh.driverId)
@@ -151,7 +151,7 @@ export default function CustomerLocationPage() {
 
       const payload = { ...form, pickupCoords: pickup, destinationCoords: dest };
 
-      const res = await fetch('http://localhost:3000/api/bookings', {
+      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -168,7 +168,7 @@ export default function CustomerLocationPage() {
       setMessage('Booking created. Finding a driver...');
 
       const assignRes = await fetch(
-        'http://localhost:3000/api/bookings/' + created._id + '/assign-driver',
+        'https://truckhiring-backend.onrender.com/api/bookings/' + created._id + '/assign-driver',
         { method: 'POST' }
       );
       const assignData = await assignRes.json();
@@ -197,7 +197,7 @@ export default function CustomerLocationPage() {
 
     try {
       const res = await fetch(
-        'http://localhost:3000/api/bookings/' + booking._id + '/choose-payment',
+        'https://truckhiring-backend.onrender.com/api/bookings/' + booking._id + '/choose-payment',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
