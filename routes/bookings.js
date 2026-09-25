@@ -25,8 +25,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Assign the first available matching driver
-router.post('/:id/assign-driver', async (req, res) => {
+// Broadcast the job to all available matching drivers (no assignment yet)
+router.post('/:id/broadcast-job', async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
     if (!booking) {
@@ -38,149 +38,127 @@ router.post('/:id/assign-driver', async (req, res) => {
       return res.status(400).json({ message: 'Booking has no truck type' });
     }
 
-    const driver = await Driver.findOne({
+    // Find available drivers with matching truck
+    const availableDrivers = await Driver.find({
       availability: 'available',
       truckType: wantedTruck
     });
 
-    if (!driver) {
+    if (!availableDrivers.length) {
+      booking.status = 'No driver available';
+      await booking.save();
       return res.status(404).json({
-        message: 'No available driver with a ' + wantedTruck
+        message: 'No available driver with a ' + wantedTruck,
+        booking
       });
     }
 
+    // Don't assign a driver yet. Just mark as broadcasting.
+    booking.status = 'Broadcasting';
+    booking.driverId = null;
+    booking.driverName = null;
+    await booking.save();
+
+    res.json({
+      message: 'Job broadcast to ' + availableDrivers.length + ' driver(s)',
+      booking,
+      driverCount: availableDrivers.length
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// Driver ACCEPTS a broadcast job. First one wins.
+router.post('/:id/accept-driver', async (req, res) => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📥 [ACCEPT] booking:', req.params.id);
+
+  try {
+    const { driverId } = req.body; // the driver who clicked Accept
+
+    if (!driverId) {
+      return res.status(400).json({ message: 'driverId required' });
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    // Another driver already took it?
+    if (booking.driverId) {
+      return res.status(409).json({
+        message: 'Job already taken by another driver',
+        booking
+      });
+    }
+
+    if (booking.status !== 'Broadcasting' && booking.status !== 'Sent to driver' && booking.status !== 'Sent to next driver') {
+      return res.status(400).json({
+        message: 'This job is no longer accepting drivers',
+        booking
+      });
+    }
+
+    const driver = await Driver.findById(driverId);
+    if (!driver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    // Assign this driver
     driver.availability = 'busy';
     await driver.save();
 
     booking.driverId = driver._id;
     booking.driverName = driver.name;
-    booking.status = 'Sent to driver';
-    await booking.save();
-
-    res.json({
-      message: 'Driver assigned',
-      booking,
-      driver: {
-        id: driver._id,
-        name: driver.name,
-        phone: driver.phone,
-        truckType: driver.truckType
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
-// Driver rejects -> try next
-router.post('/:id/reject-driver', async (req, res) => {
-  try {
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
-    if (booking.driverId) {
-      await Driver.findByIdAndUpdate(booking.driverId, { availability: 'available' });
-    }
-
-    const rejectedList = booking.rejectedDriverIds || [];
-    if (booking.driverId) rejectedList.push(booking.driverId);
-
-    const wantedTruck = booking.selectedTruck || booking.truckType;
-    const nextDriver = await Driver.findOne({
-      availability: 'available',
-      truckType: wantedTruck,
-      _id: { $nin: rejectedList }
-    });
-
-    if (!nextDriver) {
-      booking.driverId = null;
-      booking.driverName = null;
-      booking.status = 'No driver available';
-      booking.rejectedDriverIds = rejectedList;
-      await booking.save();
-      return res.json({ message: 'No more drivers available', booking });
-    }
-
-    nextDriver.availability = 'busy';
-    await nextDriver.save();
-
-    booking.driverId = nextDriver._id;
-    booking.driverName = nextDriver.name;
-    booking.status = 'Sent to next driver';
-    booking.rejectedDriverIds = rejectedList;
-    await booking.save();
-
-    res.json({
-      message: 'Sent to next driver',
-      booking,
-      driver: {
-        id: nextDriver._id,
-        name: nextDriver.name,
-        phone: nextDriver.phone,
-        truckType: nextDriver.truckType
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
-// Driver ACCEPTS -> send email to customer
-router.post('/:id/accept-driver', async (req, res) => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('📥 [ACCEPT] request for booking:', req.params.id);
-
-  try {
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      console.log('❌ [ACCEPT] booking not found');
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
     booking.agreedPrice = booking.offeredPrice;
     booking.status = 'Confirmed';
     await booking.save();
 
-    console.log('✅ [ACCEPT] booking saved as Confirmed');
+    console.log('✅ [ACCEPT] confirmed for driver:', driver.name);
 
-    console.log('🔍 [EMAIL] checking:', {
-      hasEmail: !!booking.customerEmail,
-      email: booking.customerEmail,
-      hasDriver: !!booking.driverId,
-      driverId: booking.driverId
-    });
-
-    if (booking.customerEmail && booking.driverId) {
+    // Email the customer
+    if (booking.customerEmail) {
       try {
-        const driver = await Driver.findById(booking.driverId);
-        console.log('🔍 [EMAIL] driver lookup:', driver ? driver.name : 'NOT FOUND');
-
-        if (driver) {
-          console.log('🔍 [EMAIL] calling sendEmail for:', booking.customerEmail);
-          const result = await sendEmail({
-            to: booking.customerEmail,
-            subject: '✅ Your Lucky Movers driver accepted the job',
-            html: driverAcceptedEmail(booking, driver)
-          });
-          console.log('🔍 [EMAIL] sendEmail returned:', JSON.stringify(result));
-        } else {
-          console.log('⚠️ [EMAIL] driver not found — cannot build email');
-        }
+        const result = await sendEmail({
+          to: booking.customerEmail,
+          subject: '✅ Your Lucky Movers driver accepted the job',
+          html: driverAcceptedEmail(booking, driver)
+        });
+        console.log('📬 Email sent:', JSON.stringify(result));
       } catch (e) {
-        console.log('❌ [EMAIL] exception:', e.message);
+        console.log('❌ Email error:', e.message);
       }
-    } else {
-      console.log('⚠️ [EMAIL] skipped — missing email or driver');
     }
 
-    console.log('✅ [ACCEPT] done, sending response');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    res.json({ message: 'Booking accepted', booking });
+    res.json({ message: 'Booking accepted', booking, driver });
   } catch (err) {
-    console.log('❌ [ACCEPT] crashed:', err.message);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('❌ [ACCEPT] error:', err.message);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// Driver REJECTS a broadcast job (removes themselves from seeing it)
+router.post('/:id/reject-driver', async (req, res) => {
+  try {
+    const { driverId } = req.body;
+    if (!driverId) return res.status(400).json({ message: 'driverId required' });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const rejectedList = booking.rejectedDriverIds || [];
+    if (!rejectedList.some((id) => String(id) === String(driverId))) {
+      rejectedList.push(driverId);
+    }
+
+    booking.rejectedDriverIds = rejectedList;
+    await booking.save();
+
+    res.json({ message: 'You will not see this job again', booking });
+  } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
@@ -188,16 +166,20 @@ router.post('/:id/accept-driver', async (req, res) => {
 // Driver sends counter-offer
 router.post('/:id/counter-offer', async (req, res) => {
   try {
-    const { newPrice } = req.body;
+    const { newPrice, driverId } = req.body;
     if (!newPrice || Number(newPrice) <= 0) {
       return res.status(400).json({ message: 'Invalid new price' });
     }
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
     booking.status = 'Counter-offered';
     booking.driverCounterPrice = Number(newPrice);
+    if (driverId) {
+      booking.driverId = driverId;
+      const driver = await Driver.findById(driverId);
+      if (driver) booking.driverName = driver.name;
+    }
     await booking.save();
     res.json({ message: 'Counter-offer sent to customer', booking });
   } catch (err) {
@@ -205,23 +187,15 @@ router.post('/:id/counter-offer', async (req, res) => {
   }
 });
 
-// NEW: Customer chooses payment method after driver accepts
+// Customer chooses payment method
 router.post('/:id/choose-payment', async (req, res) => {
   try {
     const { paymentMethod, paymentPhone } = req.body;
-
     if (!paymentMethod) {
       return res.status(400).json({ message: 'Payment method required' });
     }
-
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
-    if (booking.status !== 'Confirmed') {
-      return res.status(400).json({ message: 'Driver has not accepted yet' });
-    }
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
     booking.paymentMethod = paymentMethod;
     booking.paymentPhone = paymentPhone || null;

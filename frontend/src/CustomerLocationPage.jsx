@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:3000') + '/api';
+
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -68,7 +70,6 @@ export default function CustomerLocationPage() {
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Payment section state
   const [paymentMethod, setPaymentMethod] = useState('MTN Mobile Money');
   const [paymentPhone, setPaymentPhone] = useState('');
   const [paymentSaved, setPaymentSaved] = useState(false);
@@ -80,14 +81,13 @@ export default function CustomerLocationPage() {
   async function refreshBooking() {
     if (!booking?._id) return;
     try {
-      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings');
+      const res = await fetch(`${API}/bookings`);
       const data = await res.json();
       const fresh = (data.bookings || []).find((b) => b._id === booking._id);
       if (fresh) {
         setBooking(fresh);
-
         if (fresh.driverId && !driver) {
-          const dRes = await fetch('https://truckhiring-backend.onrender.com/api/drivers');
+          const dRes = await fetch(`${API}/drivers`);
           const dData = await dRes.json();
           const d = (dData.drivers || []).find(
             (x) => String(x._id) === String(fresh.driverId)
@@ -102,7 +102,7 @@ export default function CustomerLocationPage() {
 
   useEffect(() => {
     if (!booking?._id) return;
-    const interval = setInterval(refreshBooking, 3000);
+    const interval = setInterval(refreshBooking, 2000);
     return () => clearInterval(interval);
   }, [booking?._id, driver]);
 
@@ -151,7 +151,7 @@ export default function CustomerLocationPage() {
 
       const payload = { ...form, pickupCoords: pickup, destinationCoords: dest };
 
-      const res = await fetch('https://truckhiring-backend.onrender.com/api/bookings', {
+      const res = await fetch(`${API}/bookings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -165,19 +165,18 @@ export default function CustomerLocationPage() {
 
       const created = data.booking;
       setBooking(created);
-      setMessage('Booking created. Finding a driver...');
+      setMessage('Booking created. Sending to nearby drivers...');
 
-      const assignRes = await fetch(
-        'https://truckhiring-backend.onrender.com/api/bookings/' + created._id + '/assign-driver',
+      const broadcastRes = await fetch(
+        `${API}/bookings/${created._id}/broadcast-job`,
         { method: 'POST' }
       );
-      const assignData = await assignRes.json();
+      const broadcastData = await broadcastRes.json();
 
-      if (assignRes.ok) {
-        setDriver(assignData.driver);
-        setMessage('✅ Driver found! Waiting for them to accept...');
+      if (broadcastRes.ok) {
+        setMessage('✅ Job sent to ' + broadcastData.driverCount + ' nearby driver(s). Waiting for one to accept...');
       } else {
-        setMessage('⚠️ ' + (assignData.message || 'No driver available'));
+        setMessage('⚠️ ' + (broadcastData.message || 'No drivers available right now'));
       }
     } catch (err) {
       setMessage('❌ ' + err.message);
@@ -196,14 +195,11 @@ export default function CustomerLocationPage() {
     }
 
     try {
-      const res = await fetch(
-        'https://truckhiring-backend.onrender.com/api/bookings/' + booking._id + '/choose-payment',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentMethod, paymentPhone: paymentPhone.trim() })
-        }
-      );
+      const res = await fetch(`${API}/bookings/${booking._id}/choose-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethod, paymentPhone: paymentPhone.trim() })
+      });
       const data = await res.json();
 
       if (res.ok) {
@@ -217,13 +213,10 @@ export default function CustomerLocationPage() {
     }
   }
 
-  // Payment section shown only when driver has accepted
   const showPaymentSection =
     booking && booking.status === 'Confirmed' && !booking.paymentMethod;
 
-  // Show payment summary when payment is saved
-  const showPaymentSummary =
-    booking && booking.paymentMethod;
+  const showPaymentSummary = booking && booking.paymentMethod;
 
   return (
     <div className="lm-app">
@@ -240,7 +233,7 @@ export default function CustomerLocationPage() {
 
       <div className="lm-book-page">
         <h1>📝 Book a Truck</h1>
-        <p>Fill the form below and we'll match you with a driver.</p>
+        <p>Fill the form below and we'll find you a driver.</p>
 
         <div className="lm-card">
           <form onSubmit={handleSubmit} className="lm-form">
@@ -407,7 +400,6 @@ export default function CustomerLocationPage() {
           </section>
         )}
 
-        {/* PAYMENT SECTION — appears only after driver accepts */}
         {showPaymentSection && (
           <section className="lm-result" style={{ borderLeft: '6px solid #ff6b35' }}>
             <h3>💳 Pay for Your Move</h3>
@@ -421,33 +413,21 @@ export default function CustomerLocationPage() {
             <form onSubmit={submitPayment}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="radio"
-                    name="pm"
-                    value="MTN Mobile Money"
+                  <input type="radio" name="pm" value="MTN Mobile Money"
                     checked={paymentMethod === 'MTN Mobile Money'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                  />
+                    onChange={(e) => setPaymentMethod(e.target.value)} />
                   📱 MTN Mobile Money
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="radio"
-                    name="pm"
-                    value="Airtel Money"
+                  <input type="radio" name="pm" value="Airtel Money"
                     checked={paymentMethod === 'Airtel Money'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                  />
+                    onChange={(e) => setPaymentMethod(e.target.value)} />
                   📱 Airtel Money
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="radio"
-                    name="pm"
-                    value="Cash on pickup"
+                  <input type="radio" name="pm" value="Cash on pickup"
                     checked={paymentMethod === 'Cash on pickup'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                  />
+                    onChange={(e) => setPaymentMethod(e.target.value)} />
                   💵 Cash on pickup
                 </label>
               </div>
@@ -469,7 +449,6 @@ export default function CustomerLocationPage() {
           </section>
         )}
 
-        {/* PAYMENT SUMMARY — appears once payment is saved */}
         {showPaymentSummary && (
           <section className="lm-result" style={{ borderLeft: '6px solid #4caf50' }}>
             <h3>💳 Payment</h3>
@@ -487,13 +466,6 @@ export default function CustomerLocationPage() {
                 {booking.paymentStatus === 'paid' ? '✅ Paid' : '⏳ Waiting for payment'}
               </span>
             </p>
-            {booking.paymentStatus !== 'paid' && (
-              <p style={{ fontSize: 13, color: '#666' }}>
-                {booking.paymentMethod === 'Cash on pickup'
-                  ? 'Pay the driver in cash when they arrive.'
-                  : 'You will receive a prompt on your phone. Or contact support.'}
-              </p>
-            )}
           </section>
         )}
       </div>

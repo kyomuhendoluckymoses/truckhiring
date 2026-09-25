@@ -52,10 +52,8 @@ function JobMap({ booking }) {
         zoom={12}
         style={{ height: '100%', width: '100%' }}
       >
-        <TileLayer
-          attribution='&copy; OpenStreetMap'
-          url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
-        />
+        <TileLayer attribution='&copy; OpenStreetMap'
+          url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png" />
         <FitBounds pickup={pickupCoords} destination={destinationCoords} />
         {pickupCoords && (
           <Marker position={pickupCoords} icon={pickupIcon}>
@@ -85,7 +83,6 @@ function jobWhatsAppLink(b) {
     'Payment: ' + (b.paymentMethod || 'Not chosen') +
       (b.paymentStatus ? ' — ' + b.paymentStatus : '') + '\n\n' +
     'From Lucky Movers';
-
   return 'https://wa.me/256' + b.customerPhone.replace(/^0/, '') +
     '?text=' + encodeURIComponent(message);
 }
@@ -117,7 +114,7 @@ export default function DriverPage() {
       if (!res.ok) { setMessage('❌ ' + (data.message || 'Login failed')); return; }
       setDriver(data.driver);
       setMessage('Welcome, ' + data.driver.name + '!');
-      loadJobs(data.driver._id);
+      loadJobs(data.driver._id, data.driver.truckType);
     } catch (err) { setMessage('❌ ' + err.message); }
   }
 
@@ -143,38 +140,43 @@ export default function DriverPage() {
     } catch (err) { setMessage('❌ ' + err.message); }
   }
 
-  async function loadJobs(driverId) {
+  async function loadJobs(driverId, truckType) {
     if (!driverId) return;
     try {
       const res = await fetch(`${API}/bookings`);
       const data = await res.json();
+      const all = data.bookings || [];
 
-      const mine = (data.bookings || []).filter(
-        (b) => String(b.driverId) === String(driverId)
-      );
+      // Jobs assigned to me
+      const mine = all.filter((b) => String(b.driverId) === String(driverId));
 
-      const pending = mine.filter(
-        (b) => b.status === 'Sent to driver' || b.status === 'Sent to next driver'
-      );
       const active = mine.filter((b) => b.status === 'Confirmed');
       const past = mine.filter(
-        (b) => b.status !== 'Sent to driver' &&
-               b.status !== 'Sent to next driver' &&
-               b.status !== 'Confirmed'
+        (b) =>
+          b.status !== 'Confirmed' &&
+          b.status !== 'Sent to driver' &&
+          b.status !== 'Sent to next driver' &&
+          b.status !== 'Broadcasting'
       );
 
-      setPendingJobs(pending);
+      // Broadcast jobs (visible to ALL matching drivers)
+      const broadcast = all.filter((b) =>
+        b.status === 'Broadcasting' &&
+        b.selectedTruck === truckType &&
+        !(b.rejectedDriverIds || []).some((id) => String(id) === String(driverId))
+      );
+
+      setPendingJobs(broadcast);
       setActiveJobs(active);
       setHistoryJobs(past);
     } catch (err) { console.error(err); }
   }
 
-  // ⚡ REFRESH EVERY 1 SECOND (was 3000ms)
   useEffect(() => {
     if (!driver?._id) return;
-    const interval = setInterval(() => loadJobs(driver._id), 1000);
+    const interval = setInterval(() => loadJobs(driver._id, driver.truckType), 1000);
     return () => clearInterval(interval);
-  }, [driver?._id]);
+  }, [driver?._id, driver?.truckType]);
 
   async function setAvailability(newStatus) {
     if (!driver) return;
@@ -191,13 +193,20 @@ export default function DriverPage() {
   }
 
   async function acceptJob(id) {
-    if (!window.confirm('Accept this job as-is?')) return;
+    if (!window.confirm('Accept this job?')) return;
     try {
-      const res = await fetch(`${API}/bookings/${id}/accept-driver`, { method: 'POST' });
+      const res = await fetch(`${API}/bookings/${id}/accept-driver`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId: driver._id })
+      });
       const data = await res.json();
       if (res.ok) {
         setMessage('✅ Job accepted! Check "My Active Jobs" below.');
-        loadJobs(driver._id);
+        loadJobs(driver._id, driver.truckType);
+      } else if (res.status === 409) {
+        alert('Sorry — another driver already took this job.');
+        loadJobs(driver._id, driver.truckType);
       } else {
         alert('Error: ' + (data.message || 'Could not accept'));
       }
@@ -211,12 +220,12 @@ export default function DriverPage() {
       const res = await fetch(`${API}/bookings/${id}/counter-offer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPrice: Number(newPrice) })
+        body: JSON.stringify({ newPrice: Number(newPrice), driverId: driver._id })
       });
       const data = await res.json();
       if (res.ok) {
         setMessage('✅ Counter-offer sent for UGX ' + newPrice);
-        loadJobs(driver._id);
+        loadJobs(driver._id, driver.truckType);
       } else {
         alert('Error: ' + (data.message || 'Failed'));
       }
@@ -224,13 +233,17 @@ export default function DriverPage() {
   }
 
   async function rejectJob(id) {
-    if (!window.confirm('Reject this job? It will be sent to another driver.')) return;
+    if (!window.confirm('Hide this job from your list?')) return;
     try {
-      const res = await fetch(`${API}/bookings/${id}/reject-driver`, { method: 'POST' });
+      const res = await fetch(`${API}/bookings/${id}/reject-driver`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId: driver._id })
+      });
       const data = await res.json();
       if (res.ok) {
-        setMessage(data.message || 'Sent to next driver');
-        loadJobs(driver._id);
+        setMessage('Job hidden from your list');
+        loadJobs(driver._id, driver.truckType);
       } else {
         alert('Error: ' + (data.message || 'Failed'));
       }
@@ -327,9 +340,7 @@ export default function DriverPage() {
           onClick={() => setAvailability('available')}
           disabled={driver.availability === 'available'}
           style={{
-            background: '#2e7d32',
-            color: 'white',
-            fontWeight: 'bold',
+            background: '#2e7d32', color: 'white', fontWeight: 'bold',
             opacity: driver.availability === 'available' ? 0.5 : 1
           }}
         >
@@ -340,9 +351,7 @@ export default function DriverPage() {
           onClick={() => setAvailability('busy')}
           disabled={driver.availability === 'busy'}
           style={{
-            background: '#c62828',
-            color: 'white',
-            fontWeight: 'bold',
+            background: '#c62828', color: 'white', fontWeight: 'bold',
             opacity: driver.availability === 'busy' ? 0.5 : 1
           }}
         >
@@ -353,9 +362,7 @@ export default function DriverPage() {
           onClick={() => setAvailability('offline')}
           disabled={driver.availability === 'offline'}
           style={{
-            background: '#616161',
-            color: 'white',
-            fontWeight: 'bold',
+            background: '#616161', color: 'white', fontWeight: 'bold',
             opacity: driver.availability === 'offline' ? 0.5 : 1
           }}
         >
@@ -368,11 +375,11 @@ export default function DriverPage() {
       <button onClick={logout} style={{ marginBottom: 20 }}>Log Out</button>
 
       <h2 style={{ marginTop: 24, color: '#c62828' }}>
-        🔔 New Jobs Waiting ({pendingJobs.length})
+        🔔 New Jobs Available ({pendingJobs.length})
       </h2>
 
       {pendingJobs.length === 0 ? (
-        <p style={{ color: '#666' }}>No new jobs. They'll appear here automatically.</p>
+        <p style={{ color: '#666' }}>No new jobs right now. They appear here automatically.</p>
       ) : (
         pendingJobs.map((b) => (
           <Section key={b._id} title={'📦 Job ' + (b.bookingCode || b._id.slice(-6))}>
@@ -388,9 +395,8 @@ export default function DriverPage() {
             <div style={{ marginTop: 12 }}>
               <button onClick={() => acceptJob(b._id)}>✅ Accept Job</button>
               <button onClick={() => counterOffer(b._id)}>💰 Counter-Offer</button>
-              <button onClick={() => rejectJob(b._id)}>❌ Reject Job</button>
+              <button onClick={() => rejectJob(b._id)}>❌ Hide Job</button>
             </div>
-
             <p style={{ marginTop: 12 }}>
               <a href={'tel:' + b.customerPhone}
                 style={{
@@ -398,11 +404,9 @@ export default function DriverPage() {
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
                   fontWeight: 'bold', marginRight: 8
                 }}>
-                <i className="fa-solid fa-phone"></i> Call Customer
+                <i className="fa-solid fa-phone"></i> Call
               </a>
-              <a
-                href={jobWhatsAppLink(b)}
-                target="_blank" rel="noreferrer"
+              <a href={jobWhatsAppLink(b)} target="_blank" rel="noreferrer"
                 style={{
                   display: 'inline-block', background: '#25D366', color: 'white',
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
@@ -420,7 +424,7 @@ export default function DriverPage() {
       </h2>
 
       {activeJobs.length === 0 ? (
-        <p style={{ color: '#666' }}>You have no active jobs. Accepted jobs will show here.</p>
+        <p style={{ color: '#666' }}>You have no active jobs yet.</p>
       ) : (
         activeJobs.map((b) => (
           <Section key={b._id} title={'✅ Job ' + (b.bookingCode || b._id.slice(-6))}>
@@ -456,11 +460,9 @@ export default function DriverPage() {
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
                   fontWeight: 'bold', marginRight: 8
                 }}>
-                <i className="fa-solid fa-phone"></i> Call Customer
+                <i className="fa-solid fa-phone"></i> Call
               </a>
-              <a
-                href={jobWhatsAppLink(b)}
-                target="_blank" rel="noreferrer"
+              <a href={jobWhatsAppLink(b)} target="_blank" rel="noreferrer"
                 style={{
                   display: 'inline-block', background: '#25D366', color: 'white',
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
