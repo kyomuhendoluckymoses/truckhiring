@@ -1,15 +1,28 @@
 import { useState, useEffect } from 'react';
 
-const API = 'https://truckhiring-backend.onrender.com/api';
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:3000') + '/api';
+
+const inputStyle = {
+  padding: '10px 12px',
+  fontSize: 14,
+  border: '1px solid #ccc',
+  borderRadius: 6,
+  width: '100%',
+  boxSizing: 'border-box'
+};
 
 export default function AdminPage() {
   const [key, setKey] = useState(localStorage.getItem('adminKey') || '');
   const [authed, setAuthed] = useState(false);
-  const [tab, setTab] = useState('bookings');
+  const [tab, setTab] = useState('drivers');
   const [drivers, setDrivers] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [message, setMessage] = useState('');
+  const [newDriver, setNewDriver] = useState({
+    name: '', email: '', phone: '', password: '', truckType: 'Small Moving Truck'
+  });
+  const [formMessage, setFormMessage] = useState('');
 
   function headers() {
     return { 'Content-Type': 'application/json', 'x-admin-key': key };
@@ -48,6 +61,34 @@ export default function AdminPage() {
   }
 
   useEffect(() => { if (authed) loadAll(); }, [authed]);
+
+  async function registerDriver() {
+    setFormMessage('');
+    if (!newDriver.name || !newDriver.email || !newDriver.phone ||
+        !newDriver.password || !newDriver.truckType) {
+      setFormMessage('❌ Fill all fields');
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/admin/drivers`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(newDriver)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFormMessage('✅ Driver registered: ' + data.driver.name);
+        setNewDriver({
+          name: '', email: '', phone: '', password: '', truckType: 'Small Moving Truck'
+        });
+        loadAll();
+      } else {
+        setFormMessage('❌ ' + (data.message || 'Failed'));
+      }
+    } catch (err) {
+      setFormMessage('❌ ' + err.message);
+    }
+  }
 
   async function deleteDriver(id) {
     if (!window.confirm('Delete this driver permanently?')) return;
@@ -117,7 +158,6 @@ export default function AdminPage() {
     <div style={{ padding: 24, fontFamily: 'Arial' }}>
       <h1>🛠️ Admin Dashboard</h1>
 
-      {/* Money Summary */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ background: '#e8f5e9', border: '2px solid #4caf50', padding: 16, borderRadius: 10, minWidth: 200 }}>
           <div style={{ fontSize: 13, color: '#2e7d32' }}>💰 Money Collected</div>
@@ -133,7 +173,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <button onClick={() => setTab('drivers')}>Drivers ({drivers.length})</button>
         <button onClick={() => setTab('bookings')}>Bookings ({bookings.length})</button>
@@ -144,46 +183,87 @@ export default function AdminPage() {
 
       {message && <p>{message}</p>}
 
-      {/* Drivers */}
       {tab === 'drivers' && (
-        <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead style={{ background: '#1a0d2e', color: 'white' }}>
-            <tr>
-              <th>Name</th><th>Email</th><th>Phone</th><th>Truck</th>
-              <th>Status</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {drivers.map(d => (
-              <tr key={d._id}>
-                <td>{d.name}</td>
-                <td>{d.email || '-'}</td>
-                <td>{d.phone}</td>
-                <td>{d.truckType}</td>
-                <td>{d.availability}</td>
-                <td>
-                  <button onClick={() => suspendDriver(d._id)}>Suspend</button>
-                  <button onClick={() => deleteDriver(d._id)}>Delete</button>
-                </td>
+        <>
+          <div style={{
+            background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20
+          }}>
+            <h3 style={{ marginTop: 0 }}>➕ Register a New Driver</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <input placeholder="Full Name" value={newDriver.name}
+                onChange={(e) => setNewDriver({ ...newDriver, name: e.target.value })}
+                style={inputStyle} />
+              <input placeholder="Email" type="email" value={newDriver.email}
+                onChange={(e) => setNewDriver({ ...newDriver, email: e.target.value })}
+                style={inputStyle} />
+              <input placeholder="Phone (e.g. 0742502188)" value={newDriver.phone}
+                onChange={(e) => setNewDriver({ ...newDriver, phone: e.target.value })}
+                style={inputStyle} />
+              <input placeholder="Password" type="text" value={newDriver.password}
+                onChange={(e) => setNewDriver({ ...newDriver, password: e.target.value })}
+                style={inputStyle} />
+              <select value={newDriver.truckType}
+                onChange={(e) => setNewDriver({ ...newDriver, truckType: e.target.value })}
+                style={inputStyle}>
+                <option>Pickup</option>
+                <option>Small Moving Truck</option>
+                <option>Medium Moving Truck</option>
+                <option>Large Moving Truck</option>
+              </select>
+              <button onClick={registerDriver}
+                style={{
+                  background: '#2e7d32', color: 'white', border: 'none',
+                  padding: '12px 20px', borderRadius: 8, fontWeight: 'bold',
+                  cursor: 'pointer', fontSize: 15
+                }}>
+                Register Driver
+              </button>
+            </div>
+            {formMessage && <p style={{ marginTop: 12, fontWeight: 'bold' }}>{formMessage}</p>}
+          </div>
+
+          <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a0d2e', color: 'white' }}>
+              <tr>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Truck</th>
+                <th>Status</th><th>Joined</th><th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {drivers.map(d => (
+                <tr key={d._id}>
+                  <td>{d.name}</td>
+                  <td>{d.email || '—'}</td>
+                  <td>{d.phone}</td>
+                  <td>{d.truckType}</td>
+                  <td style={{ color: d.availability === 'available' ? 'green' : d.availability === 'suspended' ? 'red' : '#666' }}>
+                    {d.availability}
+                  </td>
+                  <td>{new Date(d.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <button onClick={() => suspendDriver(d._id)}
+                      style={{ background: '#ff9800', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', marginRight: 6 }}>
+                      Suspend
+                    </button>
+                    <button onClick={() => deleteDriver(d._id)}
+                      style={{ background: 'crimson', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
-      {/* Bookings with payment info */}
       {tab === 'bookings' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
             <tr>
-              <th>Customer</th>
-              <th>Driver</th>
-              <th>Amount</th>
-              <th>Payment Method</th>
-              <th>Payment Phone</th>
-              <th>Status</th>
-              <th>Paid On</th>
-              <th>Actions</th>
+              <th>Customer</th><th>Driver</th><th>Amount</th>
+              <th>Payment Method</th><th>Payment Phone</th>
+              <th>Status</th><th>Paid On</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -191,10 +271,7 @@ export default function AdminPage() {
               <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20 }}>No bookings yet.</td></tr>
             ) : bookings.map(b => (
               <tr key={b._id}>
-                <td>
-                  <strong>{b.customerName}</strong>
-                  <br /><small>{b.customerPhone}</small>
-                </td>
+                <td><strong>{b.customerName}</strong><br /><small>{b.customerPhone}</small></td>
                 <td>{b.driverName || '-'}</td>
                 <td>{fmt(b.agreedPrice || b.offeredPrice)}</td>
                 <td>{b.paymentMethod || '-'}</td>
@@ -219,7 +296,6 @@ export default function AdminPage() {
         </table>
       )}
 
-      {/* Complaints */}
       {tab === 'complaints' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
@@ -231,10 +307,7 @@ export default function AdminPage() {
           <tbody>
             {complaints.map(c => (
               <tr key={c._id}>
-                <td>
-                  <strong>{c.customerName}</strong>
-                  <br /><small>{c.customerPhone}</small>
-                </td>
+                <td><strong>{c.customerName}</strong><br /><small>{c.customerPhone}</small></td>
                 <td>{c.subject}</td>
                 <td>{c.message}</td>
                 <td>{c.status}</td>
