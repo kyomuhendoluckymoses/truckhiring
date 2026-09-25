@@ -72,6 +72,24 @@ function JobMap({ booking }) {
   );
 }
 
+function jobWhatsAppLink(b) {
+  const message =
+    '🚚 Lucky Movers - Job Details\n\n' +
+    'Booking: ' + (b.bookingCode || b._id.slice(-6)) + '\n' +
+    'Customer: ' + b.customerName + ' (' + b.customerPhone + ')\n' +
+    'Pickup: ' + b.pickupLocation + '\n' +
+    'Destination: ' + b.destination + '\n' +
+    'Truck: ' + b.selectedTruck + '\n' +
+    'Cargo: ' + b.cargoDescription + '\n' +
+    'Agreed Price: UGX ' + (b.agreedPrice || b.offeredPrice) + '\n' +
+    'Payment: ' + (b.paymentMethod || 'Not chosen') +
+      (b.paymentStatus ? ' — ' + b.paymentStatus : '') + '\n\n' +
+    'From Lucky Movers';
+
+  return 'https://wa.me/256' + b.customerPhone.replace(/^0/, '') +
+    '?text=' + encodeURIComponent(message);
+}
+
 export default function DriverPage() {
   const [view, setView] = useState('login');
   const [email, setEmail] = useState('');
@@ -151,9 +169,10 @@ export default function DriverPage() {
     } catch (err) { console.error(err); }
   }
 
+  // ⚡ REFRESH EVERY 1 SECOND (was 3000ms)
   useEffect(() => {
     if (!driver?._id) return;
-    const interval = setInterval(() => loadJobs(driver._id), 3000);
+    const interval = setInterval(() => loadJobs(driver._id), 1000);
     return () => clearInterval(interval);
   }, [driver?._id]);
 
@@ -368,9 +387,30 @@ export default function DriverPage() {
             <JobMap booking={b} />
             <div style={{ marginTop: 12 }}>
               <button onClick={() => acceptJob(b._id)}>✅ Accept Job</button>
-              <button onClick={() => counterOffer(b._id)}>💬 Counter-Offer</button>
+              <button onClick={() => counterOffer(b._id)}>💰 Counter-Offer</button>
               <button onClick={() => rejectJob(b._id)}>❌ Reject Job</button>
             </div>
+
+            <p style={{ marginTop: 12 }}>
+              <a href={'tel:' + b.customerPhone}
+                style={{
+                  display: 'inline-block', background: '#ff6b35', color: 'white',
+                  padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
+                  fontWeight: 'bold', marginRight: 8
+                }}>
+                <i className="fa-solid fa-phone"></i> Call Customer
+              </a>
+              <a
+                href={jobWhatsAppLink(b)}
+                target="_blank" rel="noreferrer"
+                style={{
+                  display: 'inline-block', background: '#25D366', color: 'white',
+                  padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
+                  fontWeight: 'bold'
+                }}>
+                <i className="fa-brands fa-whatsapp"></i> WhatsApp
+              </a>
+            </p>
           </Section>
         ))
       )}
@@ -416,17 +456,17 @@ export default function DriverPage() {
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
                   fontWeight: 'bold', marginRight: 8
                 }}>
-                📞 Call Customer
+                <i className="fa-solid fa-phone"></i> Call Customer
               </a>
               <a
-                href={'https://wa.me/256' + b.customerPhone.replace(/^0/, '')}
+                href={jobWhatsAppLink(b)}
                 target="_blank" rel="noreferrer"
                 style={{
                   display: 'inline-block', background: '#25D366', color: 'white',
                   padding: '8px 16px', borderRadius: 8, textDecoration: 'none',
                   fontWeight: 'bold'
                 }}>
-                💬 WhatsApp
+                <i className="fa-brands fa-whatsapp"></i> WhatsApp
               </a>
             </p>
             <JobMap booking={b} />
