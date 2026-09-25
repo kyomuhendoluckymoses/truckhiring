@@ -15,10 +15,6 @@ async function sendEmail({ to, subject, html }) {
   }
 
   try {
-    console.log('📤 [MAILER] POST to resend.com/emails');
-    console.log('   to:', to);
-    console.log('   from:', FROM);
-
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -29,11 +25,9 @@ async function sendEmail({ to, subject, html }) {
     });
 
     const data = await res.json();
-    console.log('📬 [MAILER] response status:', res.status);
-    console.log('📬 [MAILER] response body:', JSON.stringify(data));
 
     if (!res.ok) {
-      console.log('❌ [MAILER] send failed');
+      console.log('❌ [MAILER] send failed:', JSON.stringify(data));
       return { error: data };
     }
 
@@ -45,6 +39,7 @@ async function sendEmail({ to, subject, html }) {
   }
 }
 
+// ─────────── DRIVER ACCEPTED → CUSTOMER ───────────
 function driverAcceptedEmail(booking, driver) {
   return `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;background:#f7f7f8;">
@@ -92,12 +87,99 @@ function driverAcceptedEmail(booking, driver) {
       </p>
 
       <p style="color:#888;font-size:12px;margin-top:24px;">
-        Thanks for using Lucky Movers.<br />
-        This email was sent because you made a booking on our platform.
+        Thanks for using Lucky Movers.
       </p>
     </div>
   </div>
   `;
 }
 
-module.exports = { sendEmail, driverAcceptedEmail }
+// ─────────── DRIVER SUSPENDED → DRIVER ───────────
+function driverSuspendedEmail(driver, reason) {
+  return `
+  <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;background:#f7f7f8;">
+    <div style="background:#c62828;color:#fff;padding:20px;border-radius:12px 12px 0 0;">
+      <h1 style="margin:0;font-size:22px;">🚚 Lucky Movers</h1>
+      <p style="margin:6px 0 0;font-size:13px;opacity:.85;">Account Update</p>
+    </div>
+
+    <div style="background:#fff;padding:24px;border-radius:0 0 12px 12px;">
+      <h2 style="margin:0 0 12px;color:#c62828;">⚠️ Your account was suspended</h2>
+
+      <p style="color:#444;">Hello ${driver.name},</p>
+      <p style="color:#444;">
+        Your Lucky Movers driver account has been <strong>suspended</strong>.
+        While suspended, you cannot log in or receive new jobs.
+      </p>
+
+      <div style="background:#ffebee;border-left:4px solid #c62828;padding:14px;margin:16px 0;">
+        <strong>Reason:</strong><br/>
+        <span style="color:#b71c1c;">${reason || 'No reason provided'}</span>
+      </div>
+
+      <p style="color:#444;">
+        If you believe this is a mistake, please contact us:
+      </p>
+
+      <p>
+        <a href="https://wa.me/256700000000"
+           style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">
+          💬 Contact Support
+        </a>
+      </p>
+
+      <p style="color:#888;font-size:12px;margin-top:24px;">
+        — Lucky Movers Team
+      </p>
+    </div>
+  </div>
+  `;
+}
+
+// ─────────── DRIVER DELETED → DRIVER ───────────
+function driverRemovedEmail(driver, reason) {
+  return `
+  <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;background:#f7f7f8;">
+    <div style="background:#1a0d2e;color:#fff;padding:20px;border-radius:12px 12px 0 0;">
+      <h1 style="margin:0;font-size:22px;">🚚 Lucky Movers</h1>
+      <p style="margin:6px 0 0;font-size:13px;opacity:.85;">Account Update</p>
+    </div>
+
+    <div style="background:#fff;padding:24px;border-radius:0 0 12px 12px;">
+      <h2 style="margin:0 0 12px;color:#c62828;">❌ Your account has been removed</h2>
+
+      <p style="color:#444;">Hello ${driver.name},</p>
+      <p style="color:#444;">
+        Your Lucky Movers driver account has been <strong>permanently removed</strong>.
+      </p>
+
+      <div style="background:#ffebee;border-left:4px solid #c62828;padding:14px;margin:16px 0;">
+        <strong>Reason:</strong><br/>
+        <span style="color:#b71c1c;">${reason || 'No reason provided'}</span>
+      </div>
+
+      <p style="color:#444;">
+        If you have questions, contact us:
+      </p>
+
+      <p>
+        <a href="https://wa.me/256700000000"
+           style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">
+          💬 Contact Support
+        </a>
+      </p>
+
+      <p style="color:#888;font-size:12px;margin-top:24px;">
+        — Lucky Movers Team
+      </p>
+    </div>
+  </div>
+  `;
+}
+
+module.exports = {
+  sendEmail,
+  driverAcceptedEmail,
+  driverSuspendedEmail,
+  driverRemovedEmail
+};

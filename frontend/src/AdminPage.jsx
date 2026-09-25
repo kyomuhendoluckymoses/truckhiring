@@ -62,7 +62,6 @@ export default function AdminPage() {
 
   useEffect(() => { if (authed) loadAll(); }, [authed]);
 
-  // ─── ADD DRIVER ───
   async function registerDriver() {
     setFormMessage('');
     if (!newDriver.name || !newDriver.email || !newDriver.phone ||
@@ -91,35 +90,66 @@ export default function AdminPage() {
     }
   }
 
-  // ─── SUSPEND ───
-  async function suspendDriver(id) {
-    if (!window.confirm('Suspend this driver? They cannot receive new jobs.')) return;
-    await fetch(`${API}/admin/drivers/${id}/suspend`, { method: 'PATCH', headers: headers() });
-    loadAll();
+  async function suspendDriver(driver) {
+    const reason = window.prompt(
+      'Why are you suspending ' + driver.name + '?\n\n' +
+      'This reason will be emailed to the driver.'
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert('You must provide a reason.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/admin/drivers/${driver._id}/suspend`, {
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify({ reason: reason.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage('✅ Suspended: ' + driver.name + ' (reason emailed)');
+        loadAll();
+      } else {
+        setMessage('❌ ' + (data.message || 'Failed'));
+      }
+    } catch (err) {
+      setMessage('❌ ' + err.message);
+    }
   }
 
-  // ─── UNSUSPEND ───
   async function unsuspendDriver(id) {
     if (!window.confirm('Reactivate this driver?')) return;
     await fetch(`${API}/admin/drivers/${id}/unsuspend`, { method: 'PATCH', headers: headers() });
     loadAll();
   }
 
-  // ─── DELETE (with active-jobs warning) ───
-  async function deleteDriver(id, name) {
+  async function deleteDriver(driver) {
     const typed = window.prompt(
       'Type the driver\'s name to confirm permanent deletion:\n\n' +
-      'Name: ' + name
+      'Name: ' + driver.name
     );
-    if (typed !== name) {
+    if (typed !== driver.name) {
       alert('Name did not match. Deletion cancelled.');
       return;
     }
 
+    const reason = window.prompt(
+      'Why are you removing ' + driver.name + '?\n\n' +
+      'This reason will be emailed to the driver.'
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert('You must provide a reason.');
+      return;
+    }
+
     try {
-      const res = await fetch(`${API}/admin/drivers/${id}`, {
+      const res = await fetch(`${API}/admin/drivers/${driver._id}`, {
         method: 'DELETE',
-        headers: headers()
+        headers: headers(),
+        body: JSON.stringify({ reason: reason.trim() })
       });
 
       if (res.status === 409) {
@@ -128,16 +158,29 @@ export default function AdminPage() {
           '⚠️ ' + data.message + '\n\nDelete anyway? Active jobs will be orphaned.'
         );
         if (!force) return;
-        await fetch(`${API}/admin/drivers/${id}?force=true`, {
+        await fetch(`${API}/admin/drivers/${driver._id}?force=true`, {
           method: 'DELETE',
-          headers: headers()
+          headers: headers(),
+          body: JSON.stringify({ reason: reason.trim() })
         });
       }
 
+      setMessage('✅ Removed: ' + driver.name + ' (reason emailed)');
       loadAll();
     } catch (err) {
       alert('Error: ' + err.message);
     }
+  }
+
+  function whatsappReasonLink(driver, action) {
+    const reason = driver.suspensionReason || '(reason)';
+    const message =
+      'Hi ' + driver.name + ', this is Lucky Movers admin.\n\n' +
+      'Your account has been ' + action + '.\n\n' +
+      'Reason: ' + reason + '\n\n' +
+      'Please contact us on 0742502188 if you have questions.';
+    return 'https://wa.me/256' + (driver.phone || '').replace(/^0/, '') +
+      '?text=' + encodeURIComponent(message);
   }
 
   async function setPayment(id, status) {
@@ -196,7 +239,6 @@ export default function AdminPage() {
     <div style={{ padding: 24, fontFamily: 'Arial' }}>
       <h1>🛠️ Admin Dashboard</h1>
 
-      {/* Money summary */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ background: '#e8f5e9', border: '2px solid #4caf50', padding: 16, borderRadius: 10, minWidth: 200 }}>
           <div style={{ fontSize: 13, color: '#2e7d32' }}>💰 Money Collected</div>
@@ -212,7 +254,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <button onClick={() => setTab('drivers')}>Drivers ({drivers.length})</button>
         <button onClick={() => setTab('bookings')}>Bookings ({bookings.length})</button>
@@ -221,14 +262,11 @@ export default function AdminPage() {
         <button onClick={() => { localStorage.removeItem('adminKey'); setAuthed(false); }}>Log Out</button>
       </div>
 
-      {message && <p>{message}</p>}
+      {message && <p style={{ fontWeight: 'bold' }}>{message}</p>}
 
-      {/* DRIVERS TAB */}
       {tab === 'drivers' && (
         <>
-          <div style={{
-            background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20
-          }}>
+          <div style={{ background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20 }}>
             <h3 style={{ marginTop: 0 }}>➕ Register a New Driver</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <input placeholder="Full Name" value={newDriver.name}
@@ -267,7 +305,7 @@ export default function AdminPage() {
             <thead style={{ background: '#1a0d2e', color: 'white' }}>
               <tr>
                 <th>Name</th><th>Email</th><th>Phone</th><th>Truck</th>
-                <th>Status</th><th>Joined</th><th>Actions</th>
+                <th>Status</th><th>Suspension Reason</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -285,10 +323,12 @@ export default function AdminPage() {
                   }}>
                     {d.availability}
                   </td>
-                  <td>{new Date(d.createdAt).toLocaleDateString()}</td>
+                  <td style={{ color: '#b71c1c', fontSize: 12 }}>
+                    {d.suspensionReason || '—'}
+                  </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {d.availability !== 'suspended' ? (
-                      <button onClick={() => suspendDriver(d._id)}
+                      <button onClick={() => suspendDriver(d)}
                         style={{ background: '#ff9800', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', marginRight: 6 }}>
                         Suspend
                       </button>
@@ -298,7 +338,12 @@ export default function AdminPage() {
                         Reactivate
                       </button>
                     )}
-                    <button onClick={() => deleteDriver(d._id, d.name)}
+                    <a href={whatsappReasonLink(d, d.availability === 'suspended' ? 'suspended' : 'updated')}
+                       target="_blank" rel="noreferrer"
+                       style={{ background: '#25D366', color: 'white', padding: '6px 10px', borderRadius: 6, textDecoration: 'none', marginRight: 6, fontWeight: 'bold', fontSize: 13 }}>
+                      WhatsApp
+                    </a>
+                    <button onClick={() => deleteDriver(d)}
                       style={{ background: 'crimson', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>
                       Delete
                     </button>
@@ -310,7 +355,6 @@ export default function AdminPage() {
         </>
       )}
 
-      {/* BOOKINGS TAB */}
       {tab === 'bookings' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
@@ -350,7 +394,6 @@ export default function AdminPage() {
         </table>
       )}
 
-      {/* COMPLAINTS TAB */}
       {tab === 'complaints' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>

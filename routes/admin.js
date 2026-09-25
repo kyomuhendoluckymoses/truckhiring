@@ -3,6 +3,7 @@ const router = express.Router();
 const Driver = require('../models/Driver');
 const Booking = require('../models/Booking');
 const Complaint = require('../models/Complaint');
+const { sendEmail, driverSuspendedEmail, driverRemovedEmail } = require('../mailer');
 
 const ADMIN_KEY = process.env.ADMIN_KEY || 'lucky-admin-2026';
 
@@ -18,7 +19,6 @@ router.use(requireAdmin);
 
 // ─────────── DRIVERS ───────────
 
-// List all drivers
 router.get('/drivers', async (req, res) => {
   try {
     const drivers = await Driver.find().sort({ createdAt: -1 });
@@ -28,15 +28,11 @@ router.get('/drivers', async (req, res) => {
   }
 });
 
-// Admin registers a new driver
 router.post('/drivers', async (req, res) => {
   try {
     const { name, email, phone, password, truckType } = req.body;
-
     if (!name || !email || !phone || !password || !truckType) {
-      return res.status(400).json({
-        message: 'Name, email, phone, password and truck type are required'
-      });
+      return res.status(400).json({ message: 'All fields required' });
     }
 
     const cleanEmail = email.toLowerCase().trim();
@@ -65,27 +61,47 @@ router.post('/drivers', async (req, res) => {
   }
 });
 
-// Suspend (soft block) — driver can't get new jobs but stays in system
+// Suspend — with reason
 router.patch('/drivers/:id/suspend', async (req, res) => {
   try {
+    const { reason } = req.body;
+
     const driver = await Driver.findByIdAndUpdate(
       req.params.id,
-      { availability: 'suspended' },
+      {
+        availability: 'suspended',
+        suspensionReason: reason || 'No reason provided',
+        suspendedAt: new Date()
+      },
       { new: true }
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
+
+    // Send email to driver
+    if (driver.email) {
+      try {
+        await sendEmail({
+          to: driver.email,
+          subject: '⚠️ Your Lucky Movers driver account was suspended',
+          html: driverSuspendedEmail(driver, reason)
+        });
+      } catch (e) {
+        console.log('❌ Email error:', e.message);
+      }
+    }
+
     res.json({ message: 'Driver suspended', driver });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Unsuspend (bring back to offline)
+// Reactivate
 router.patch('/drivers/:id/unsuspend', async (req, res) => {
   try {
     const driver = await Driver.findByIdAndUpdate(
       req.params.id,
-      { availability: 'offline' },
+      { availability: 'offline', suspensionReason: null, suspendedAt: null },
       { new: true }
     );
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
@@ -95,13 +111,13 @@ router.patch('/drivers/:id/unsuspend', async (req, res) => {
   }
 });
 
-// Delete permanently — warns if the driver has active jobs
+// Delete — with reason + email
 router.delete('/drivers/:id', async (req, res) => {
   try {
+    const { reason } = req.body;
     const driver = await Driver.findById(req.params.id);
     if (!driver) return res.status(404).json({ message: 'Driver not found' });
 
-    // Check for active jobs
     const activeJobs = await Booking.countDocuments({
       driverId: driver._id,
       status: { $in: ['Confirmed', 'Broadcasting', 'Sent to driver', 'Sent to next driver'] }
@@ -109,9 +125,22 @@ router.delete('/drivers/:id', async (req, res) => {
 
     if (activeJobs > 0 && req.query.force !== 'true') {
       return res.status(409).json({
-        message: `This driver has ${activeJobs} active job(s). Add ?force=true to confirm deletion.`,
+        message: `This driver has ${activeJobs} active job(s).`,
         activeJobs
       });
+    }
+
+    // Send email BEFORE deleting
+    if (driver.email) {
+      try {
+        await sendEmail({
+          to: driver.email,
+          subject: '❌ Your Lucky Movers driver account was removed',
+          html: driverRemovedEmail(driver, reason)
+        });
+      } catch (e) {
+        console.log('❌ Email error:', e.message);
+      }
     }
 
     await Driver.findByIdAndDelete(req.params.id);
