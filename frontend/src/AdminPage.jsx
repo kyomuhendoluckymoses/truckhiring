@@ -23,6 +23,20 @@ export default function AdminPage() {
     name: '', email: '', phone: '', password: '', truckType: 'Small Moving Truck'
   });
   const [formMessage, setFormMessage] = useState('');
+  const [bookingSearch, setBookingSearch] = useState('');
+  const [showAddBooking, setShowAddBooking] = useState(false);
+  const [newBooking, setNewBooking] = useState({
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    selectedTruck: 'Small Moving Truck',
+    offeredPrice: '',
+    pickupLocation: '',
+    destination: '',
+    pickupDate: '',
+    cargoDescription: ''
+  });
+  const [selectedBooking, setSelectedBooking] = useState(null);
 
   function headers() {
     return { 'Content-Type': 'application/json', 'x-admin-key': key };
@@ -61,6 +75,54 @@ export default function AdminPage() {
   }
 
   useEffect(() => { if (authed) loadAll(); }, [authed]);
+
+  async function createBooking() {
+    setFormMessage('');
+    if (!newBooking.customerName || !newBooking.customerPhone ||
+        !newBooking.pickupLocation || !newBooking.destination ||
+        !newBooking.pickupDate || !newBooking.cargoDescription ||
+        !newBooking.offeredPrice) {
+      setFormMessage('❌ Fill all required fields');
+      return;
+    }
+    try {
+      const payload = {
+        ...newBooking,
+        offeredPrice: Number(newBooking.offeredPrice),
+        status: 'Pending'
+      };
+      const res = await fetch(`${API}/bookings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFormMessage('❌ ' + (data.message || 'Failed to create booking'));
+        return;
+      }
+      const created = data.booking;
+      await fetch(`${API}/bookings/${created._id}/broadcast-job`, {
+        method: 'POST'
+      });
+      setFormMessage('✅ Booking created and sent to drivers');
+      setNewBooking({
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        selectedTruck: 'Small Moving Truck',
+        offeredPrice: '',
+        pickupLocation: '',
+        destination: '',
+        pickupDate: '',
+        cargoDescription: ''
+      });
+      setShowAddBooking(false);
+      loadAll();
+    } catch (err) {
+      setFormMessage('❌ ' + err.message);
+    }
+  }
 
   async function registerDriver() {
     setFormMessage('');
@@ -201,7 +263,17 @@ export default function AdminPage() {
     return 'UGX ' + Number(n || 0).toLocaleString();
   }
 
-  // ─── MONEY SUMMARIES ───
+  const filteredBookings = bookings.filter(b => {
+    if (!bookingSearch.trim()) return true;
+    const q = bookingSearch.trim().toLowerCase();
+    return (
+      (b.customerName || '').toLowerCase().includes(q) ||
+      (b.customerPhone || '').toLowerCase().includes(q) ||
+      (b.driverName || '').toLowerCase().includes(q) ||
+      (b.bookingCode || '').toLowerCase().includes(q)
+    );
+  });
+
   const totalPaid = bookings
     .filter(b => b.paymentStatus === 'paid')
     .reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
@@ -214,35 +286,17 @@ export default function AdminPage() {
     .filter(b => b.paymentStatus === 'refunded')
     .reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
 
-  // ─── DRIVER EARNINGS ───
-  // Only confirmed jobs count as earned (driver actually did the work)
   const earningsByDriver = drivers.map(driver => {
     const myJobs = bookings.filter(b =>
       String(b.driverId) === String(driver._id) &&
       b.status === 'Confirmed'
     );
-
     const paidJobs = myJobs.filter(b => b.paymentStatus === 'paid');
     const unpaidJobs = myJobs.filter(b => b.paymentStatus !== 'paid');
-
-    const totalEarned = myJobs.reduce(
-      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
-    );
-    const paidAmount = paidJobs.reduce(
-      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
-    );
-    const unpaidAmount = unpaidJobs.reduce(
-      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
-    );
-
-    return {
-      driver,
-      trips: myJobs.length,
-      paidTrips: paidJobs.length,
-      totalEarned,
-      paidAmount,
-      unpaidAmount
-    };
+    const totalEarned = myJobs.reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
+    const paidAmount = paidJobs.reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
+    const unpaidAmount = unpaidJobs.reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
+    return { driver, trips: myJobs.length, paidTrips: paidJobs.length, totalEarned, paidAmount, unpaidAmount };
   }).sort((a, b) => b.totalEarned - a.totalEarned);
 
   const earningsTotal = earningsByDriver.reduce((s, e) => s + e.totalEarned, 0);
@@ -254,13 +308,9 @@ export default function AdminPage() {
       <div style={{ maxWidth: 400, margin: '80px auto', padding: 20, fontFamily: 'Arial' }}>
         <h1>🔐 Admin Login</h1>
         <form onSubmit={login} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <input
-            type="password"
-            placeholder="Admin key"
-            value={key}
+          <input type="password" placeholder="Admin key" value={key}
             onChange={(e) => setKey(e.target.value)}
-            style={{ padding: 10, fontSize: 16 }}
-          />
+            style={{ padding: 10, fontSize: 16 }} />
           <button type="submit" style={{ padding: 10, fontSize: 16 }}>Log In</button>
         </form>
         {message && <p>{message}</p>}
@@ -298,40 +348,32 @@ export default function AdminPage() {
 
       {message && <p style={{ fontWeight: 'bold' }}>{message}</p>}
 
-      {/* ============ EARNINGS TAB ============ */}
+      {/* EARNINGS TAB */}
       {tab === 'earnings' && (
         <>
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <div style={{ background: '#e3f2fd', border: '2px solid #2196f3', padding: 16, borderRadius: 10, minWidth: 200 }}>
-              <div style={{ fontSize: 13, color: '#0d47a1' }}>💵 Total Earned by All Drivers</div>
+              <div style={{ fontSize: 13, color: '#0d47a1' }}>💵 Total Earned</div>
               <div style={{ fontSize: 22, fontWeight: 'bold', color: '#0d47a1', marginTop: 6 }}>{fmt(earningsTotal)}</div>
             </div>
             <div style={{ background: '#e8f5e9', border: '2px solid #4caf50', padding: 16, borderRadius: 10, minWidth: 200 }}>
-              <div style={{ fontSize: 13, color: '#2e7d32' }}>✅ Already Paid (customers)</div>
+              <div style={{ fontSize: 13, color: '#2e7d32' }}>✅ Paid</div>
               <div style={{ fontSize: 22, fontWeight: 'bold', color: '#1b5e20', marginTop: 6 }}>{fmt(earningsPaid)}</div>
             </div>
             <div style={{ background: '#fff8e1', border: '2px solid #ff9800', padding: 16, borderRadius: 10, minWidth: 200 }}>
-              <div style={{ fontSize: 13, color: '#e65100' }}>⏳ Still Pending</div>
+              <div style={{ fontSize: 13, color: '#e65100' }}>⏳ Pending</div>
               <div style={{ fontSize: 22, fontWeight: 'bold', color: '#bf360c', marginTop: 6 }}>{fmt(earningsUnpaid)}</div>
             </div>
           </div>
-
           <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#1a0d2e', color: 'white' }}>
               <tr>
-                <th>Driver</th>
-                <th>Phone</th>
-                <th>Trips</th>
-                <th>Paid Trips</th>
-                <th>Total Earned</th>
-                <th>✅ Paid</th>
-                <th>⏳ Pending</th>
+                <th>Driver</th><th>Phone</th><th>Trips</th><th>Paid Trips</th>
+                <th>Total Earned</th><th>✅ Paid</th><th>⏳ Pending</th>
               </tr>
             </thead>
             <tbody>
-              {earningsByDriver.length === 0 ? (
-                <tr><td colSpan="7" style={{ textAlign: 'center', padding: 20 }}>No drivers yet.</td></tr>
-              ) : earningsByDriver.map(({ driver, trips, paidTrips, totalEarned, paidAmount, unpaidAmount }) => (
+              {earningsByDriver.map(({ driver, trips, paidTrips, totalEarned, paidAmount, unpaidAmount }) => (
                 <tr key={driver._id}>
                   <td><strong>{driver.name}</strong></td>
                   <td>{driver.phone}</td>
@@ -343,56 +385,38 @@ export default function AdminPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot>
-              <tr style={{ background: '#f5f5f5', fontWeight: 'bold' }}>
-                <td colSpan="4" style={{ textAlign: 'right' }}>TOTALS:</td>
-                <td style={{ color: '#0d47a1' }}>{fmt(earningsTotal)}</td>
-                <td style={{ color: 'green' }}>{fmt(earningsPaid)}</td>
-                <td style={{ color: 'orange' }}>{fmt(earningsUnpaid)}</td>
-              </tr>
-            </tfoot>
           </table>
         </>
       )}
 
-      {/* ============ DRIVERS TAB ============ */}
+      {/* DRIVERS TAB */}
       {tab === 'drivers' && (
         <>
           <div style={{ background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20 }}>
             <h3 style={{ marginTop: 0 }}>➕ Register a New Driver</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <input placeholder="Full Name" value={newDriver.name}
-                onChange={(e) => setNewDriver({ ...newDriver, name: e.target.value })}
-                style={inputStyle} />
+                onChange={(e) => setNewDriver({ ...newDriver, name: e.target.value })} style={inputStyle} />
               <input placeholder="Email" type="email" value={newDriver.email}
-                onChange={(e) => setNewDriver({ ...newDriver, email: e.target.value })}
-                style={inputStyle} />
-              <input placeholder="Phone (e.g. 0742502188)" value={newDriver.phone}
-                onChange={(e) => setNewDriver({ ...newDriver, phone: e.target.value })}
-                style={inputStyle} />
+                onChange={(e) => setNewDriver({ ...newDriver, email: e.target.value })} style={inputStyle} />
+              <input placeholder="Phone" value={newDriver.phone}
+                onChange={(e) => setNewDriver({ ...newDriver, phone: e.target.value })} style={inputStyle} />
               <input placeholder="Password" type="text" value={newDriver.password}
-                onChange={(e) => setNewDriver({ ...newDriver, password: e.target.value })}
-                style={inputStyle} />
+                onChange={(e) => setNewDriver({ ...newDriver, password: e.target.value })} style={inputStyle} />
               <select value={newDriver.truckType}
-                onChange={(e) => setNewDriver({ ...newDriver, truckType: e.target.value })}
-                style={inputStyle}>
+                onChange={(e) => setNewDriver({ ...newDriver, truckType: e.target.value })} style={inputStyle}>
                 <option>Pickup</option>
                 <option>Small Moving Truck</option>
                 <option>Medium Moving Truck</option>
                 <option>Large Moving Truck</option>
               </select>
               <button onClick={registerDriver}
-                style={{
-                  background: '#2e7d32', color: 'white', border: 'none',
-                  padding: '12px 20px', borderRadius: 8, fontWeight: 'bold',
-                  cursor: 'pointer', fontSize: 15
-                }}>
+                style={{ background: '#2e7d32', color: 'white', border: 'none', padding: '12px 20px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
                 Register Driver
               </button>
             </div>
             {formMessage && <p style={{ marginTop: 12, fontWeight: 'bold' }}>{formMessage}</p>}
           </div>
-
           <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#1a0d2e', color: 'white' }}>
               <tr>
@@ -412,12 +436,8 @@ export default function AdminPage() {
                            d.availability === 'suspended' ? 'red' :
                            d.availability === 'busy' ? 'darkorange' : '#666',
                     fontWeight: 'bold'
-                  }}>
-                    {d.availability}
-                  </td>
-                  <td style={{ color: '#b71c1c', fontSize: 12 }}>
-                    {d.suspensionReason || '—'}
-                  </td>
+                  }}>{d.availability}</td>
+                  <td style={{ color: '#b71c1c', fontSize: 12 }}>{d.suspensionReason || '—'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {d.availability !== 'suspended' ? (
                       <button onClick={() => suspendDriver(d)}
@@ -447,47 +467,111 @@ export default function AdminPage() {
         </>
       )}
 
-      {/* ============ BOOKINGS TAB ============ */}
+      {/* BOOKINGS TAB */}
       {tab === 'bookings' && (
-        <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead style={{ background: '#1a0d2e', color: 'white' }}>
-            <tr>
-              <th>Customer</th><th>Driver</th><th>Amount</th>
-              <th>Payment Method</th><th>Payment Phone</th>
-              <th>Status</th><th>Paid On</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bookings.length === 0 ? (
-              <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20 }}>No bookings yet.</td></tr>
-            ) : bookings.map(b => (
-              <tr key={b._id}>
-                <td><strong>{b.customerName}</strong><br /><small>{b.customerPhone}</small></td>
-                <td>{b.driverName || '-'}</td>
-                <td>{fmt(b.agreedPrice || b.offeredPrice)}</td>
-                <td>{b.paymentMethod || '-'}</td>
-                <td>{b.paymentPhone || '-'}</td>
-                <td style={{
-                  color: b.paymentStatus === 'paid' ? 'green'
-                       : b.paymentStatus === 'refunded' ? 'orange'
-                       : 'red',
-                  fontWeight: 'bold'
-                }}>
-                  {b.paymentStatus || 'unpaid'}
-                </td>
-                <td>{b.paidAt ? new Date(b.paidAt).toLocaleString() : '-'}</td>
-                <td>
-                  <button onClick={() => setPayment(b._id, 'paid')}>Mark Paid</button>
-                  <button onClick={() => setPayment(b._id, 'refunded')}>Refund</button>
-                  <button onClick={() => setPayment(b._id, 'unpaid')}>Unpaid</button>
-                </td>
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search customer name, phone, driver, or code..."
+              value={bookingSearch}
+              onChange={(e) => setBookingSearch(e.target.value)}
+              style={{ ...inputStyle, flex: 1, minWidth: 260 }}
+            />
+            <button
+              onClick={() => setShowAddBooking(!showAddBooking)}
+              style={{ background: '#2e7d32', color: 'white', border: 'none', padding: '12px 20px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {showAddBooking ? '✖ Cancel' : '➕ Add Booking'}
+            </button>
+          </div>
+
+          <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+            Showing {filteredBookings.length} of {bookings.length} bookings · <em>Click any row to see what they booked</em>
+          </div>
+
+          {showAddBooking && (
+            <div style={{ background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20 }}>
+              <h3 style={{ marginTop: 0 }}>➕ Add Booking</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <input placeholder="Customer Name *" value={newBooking.customerName}
+                  onChange={(e) => setNewBooking({ ...newBooking, customerName: e.target.value })} style={inputStyle} />
+                <input placeholder="Customer Phone *" value={newBooking.customerPhone}
+                  onChange={(e) => setNewBooking({ ...newBooking, customerPhone: e.target.value })} style={inputStyle} />
+                <input placeholder="Customer Email (optional)" type="email" value={newBooking.customerEmail}
+                  onChange={(e) => setNewBooking({ ...newBooking, customerEmail: e.target.value })} style={inputStyle} />
+                <select value={newBooking.selectedTruck}
+                  onChange={(e) => setNewBooking({ ...newBooking, selectedTruck: e.target.value })} style={inputStyle}>
+                  <option>Pickup</option>
+                  <option>Small Moving Truck</option>
+                  <option>Medium Moving Truck</option>
+                  <option>Large Moving Truck</option>
+                </select>
+                <input placeholder="Pickup Location *" value={newBooking.pickupLocation}
+                  onChange={(e) => setNewBooking({ ...newBooking, pickupLocation: e.target.value })} style={inputStyle} />
+                <input placeholder="Destination *" value={newBooking.destination}
+                  onChange={(e) => setNewBooking({ ...newBooking, destination: e.target.value })} style={inputStyle} />
+                <input type="date" value={newBooking.pickupDate}
+                  onChange={(e) => setNewBooking({ ...newBooking, pickupDate: e.target.value })} style={inputStyle} />
+                <input type="number" placeholder="Offered Price (UGX) *" value={newBooking.offeredPrice}
+                  onChange={(e) => setNewBooking({ ...newBooking, offeredPrice: e.target.value })} style={inputStyle} />
+                <input placeholder="Cargo Description *" value={newBooking.cargoDescription}
+                  onChange={(e) => setNewBooking({ ...newBooking, cargoDescription: e.target.value })}
+                  style={{ ...inputStyle, gridColumn: '1 / -1' }} />
+                <button onClick={createBooking}
+                  style={{ background: '#2e7d32', color: 'white', border: 'none', padding: '12px 20px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', gridColumn: '1 / -1' }}>
+                  Create & Broadcast to Drivers
+                </button>
+              </div>
+              {formMessage && <p style={{ marginTop: 12, fontWeight: 'bold' }}>{formMessage}</p>}
+            </div>
+          )}
+
+          <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a0d2e', color: 'white' }}>
+              <tr>
+                <th>Customer</th><th>Driver</th><th>Amount</th>
+                <th>Payment Method</th><th>Payment Phone</th>
+                <th>Status</th><th>Paid On</th><th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredBookings.length === 0 ? (
+                <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20 }}>
+                  {bookingSearch ? 'No bookings match your search.' : 'No bookings yet.'}
+                </td></tr>
+              ) : filteredBookings.map(b => (
+                <tr key={b._id}
+                    onClick={() => setSelectedBooking(b)}
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f7'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}>
+                  <td><strong>{b.customerName}</strong><br /><small>{b.customerPhone}</small></td>
+                  <td>{b.driverName || '-'}</td>
+                  <td>{fmt(b.agreedPrice || b.offeredPrice)}</td>
+                  <td>{b.paymentMethod || '-'}</td>
+                  <td>{b.paymentPhone || '-'}</td>
+                  <td style={{
+                    color: b.paymentStatus === 'paid' ? 'green'
+                         : b.paymentStatus === 'refunded' ? 'orange'
+                         : 'red',
+                    fontWeight: 'bold'
+                  }}>
+                    {b.paymentStatus || 'unpaid'}
+                  </td>
+                  <td>{b.paidAt ? new Date(b.paidAt).toLocaleString() : '-'}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => setPayment(b._id, 'paid')}>Mark Paid</button>
+                    <button onClick={() => setPayment(b._id, 'refunded')}>Refund</button>
+                    <button onClick={() => setPayment(b._id, 'unpaid')}>Unpaid</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
-      {/* ============ COMPLAINTS TAB ============ */}
+      {/* COMPLAINTS TAB */}
       {tab === 'complaints' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
@@ -512,6 +596,98 @@ export default function AdminPage() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* BOOKING DETAILS POPUP */}
+      {selectedBooking && (
+        <div
+          onClick={() => setSelectedBooking(null)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.6)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 20
+          }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white', borderRadius: 12, padding: 24,
+              maxWidth: 600, width: '100%', maxHeight: '90vh',
+              overflowY: 'auto', fontFamily: 'Arial'
+            }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>📋 Booking Details</h2>
+              <button
+                onClick={() => setSelectedBooking(null)}
+                style={{ background: '#eee', border: 'none', fontSize: 20, width: 36, height: 36, borderRadius: '50%', cursor: 'pointer' }}>
+                ✖
+              </button>
+            </div>
+
+            <div style={{ background: '#f5f5f7', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: '#666' }}>Booking Code</div>
+              <div style={{ fontSize: 18, fontWeight: 'bold' }}>
+                {selectedBooking.bookingCode || selectedBooking._id.slice(-6)}
+              </div>
+              <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>Created</div>
+              <div>{new Date(selectedBooking.createdAt).toLocaleString()}</div>
+            </div>
+
+            <h3 style={{ color: '#1a0d2e' }}>👤 Customer</h3>
+            <p>
+              <strong>{selectedBooking.customerName}</strong><br />
+              📞 {selectedBooking.customerPhone}<br />
+              {selectedBooking.customerEmail && <>✉️ {selectedBooking.customerEmail}</>}
+            </p>
+
+            <h3 style={{ color: '#1a0d2e' }}>🚚 Trip</h3>
+            <p>
+              <strong>Pickup:</strong> {selectedBooking.pickupLocation}<br />
+              <strong>Destination:</strong> {selectedBooking.destination}<br />
+              <strong>Truck:</strong> {selectedBooking.selectedTruck}<br />
+              <strong>Date:</strong> {selectedBooking.pickupDate}<br />
+              <strong>Cargo:</strong> {selectedBooking.cargoDescription}
+            </p>
+
+            <h3 style={{ color: '#1a0d2e' }}>💰 Payment</h3>
+            <p>
+              <strong>Amount:</strong> {fmt(selectedBooking.agreedPrice || selectedBooking.offeredPrice)}<br />
+              <strong>Method:</strong> {selectedBooking.paymentMethod || '—'}<br />
+              <strong>Phone:</strong> {selectedBooking.paymentPhone || '—'}<br />
+              <strong>Status:</strong>{' '}
+              <span style={{
+                color: selectedBooking.paymentStatus === 'paid' ? 'green'
+                     : selectedBooking.paymentStatus === 'refunded' ? 'orange'
+                     : 'red',
+                fontWeight: 'bold'
+              }}>
+                {selectedBooking.paymentStatus || 'unpaid'}
+              </span><br />
+              {selectedBooking.paidAt && <><strong>Paid On:</strong> {new Date(selectedBooking.paidAt).toLocaleString()}</>}
+            </p>
+
+            {selectedBooking.driverName && (
+              <>
+                <h3 style={{ color: '#1a0d2e' }}>👨‍✈️ Driver</h3>
+                <p>
+                  <strong>{selectedBooking.driverName}</strong><br />
+                  <strong>Status:</strong> {selectedBooking.status}
+                </p>
+              </>
+            )}
+
+            <button
+              onClick={() => setSelectedBooking(null)}
+              style={{
+                width: '100%', padding: 12, background: '#1a0d2e',
+                color: 'white', border: 'none', borderRadius: 8,
+                fontWeight: 'bold', fontSize: 15, cursor: 'pointer',
+                marginTop: 12
+              }}>
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
