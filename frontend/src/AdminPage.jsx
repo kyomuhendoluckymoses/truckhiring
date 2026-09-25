@@ -100,7 +100,6 @@ export default function AdminPage() {
       alert('You must provide a reason.');
       return;
     }
-
     try {
       const res = await fetch(`${API}/admin/drivers/${driver._id}/suspend`, {
         method: 'PATCH',
@@ -130,11 +129,12 @@ export default function AdminPage() {
       'Type the driver\'s name to confirm permanent deletion:\n\n' +
       'Name: ' + driver.name
     );
-    if (typed !== driver.name) {
+    const cleanTyped = (typed || '').trim().toLowerCase();
+    const cleanName = (driver.name || '').trim().toLowerCase();
+    if (cleanTyped !== cleanName) {
       alert('Name did not match. Deletion cancelled.');
       return;
     }
-
     const reason = window.prompt(
       'Why are you removing ' + driver.name + '?\n\n' +
       'This reason will be emailed to the driver.'
@@ -144,14 +144,12 @@ export default function AdminPage() {
       alert('You must provide a reason.');
       return;
     }
-
     try {
       const res = await fetch(`${API}/admin/drivers/${driver._id}`, {
         method: 'DELETE',
         headers: headers(),
         body: JSON.stringify({ reason: reason.trim() })
       });
-
       if (res.status === 409) {
         const data = await res.json();
         const force = window.confirm(
@@ -164,7 +162,6 @@ export default function AdminPage() {
           body: JSON.stringify({ reason: reason.trim() })
         });
       }
-
       setMessage('✅ Removed: ' + driver.name + ' (reason emailed)');
       loadAll();
     } catch (err) {
@@ -204,6 +201,7 @@ export default function AdminPage() {
     return 'UGX ' + Number(n || 0).toLocaleString();
   }
 
+  // ─── MONEY SUMMARIES ───
   const totalPaid = bookings
     .filter(b => b.paymentStatus === 'paid')
     .reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
@@ -215,6 +213,41 @@ export default function AdminPage() {
   const totalRefunded = bookings
     .filter(b => b.paymentStatus === 'refunded')
     .reduce((sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0);
+
+  // ─── DRIVER EARNINGS ───
+  // Only confirmed jobs count as earned (driver actually did the work)
+  const earningsByDriver = drivers.map(driver => {
+    const myJobs = bookings.filter(b =>
+      String(b.driverId) === String(driver._id) &&
+      b.status === 'Confirmed'
+    );
+
+    const paidJobs = myJobs.filter(b => b.paymentStatus === 'paid');
+    const unpaidJobs = myJobs.filter(b => b.paymentStatus !== 'paid');
+
+    const totalEarned = myJobs.reduce(
+      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
+    );
+    const paidAmount = paidJobs.reduce(
+      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
+    );
+    const unpaidAmount = unpaidJobs.reduce(
+      (sum, b) => sum + (b.agreedPrice || b.offeredPrice || 0), 0
+    );
+
+    return {
+      driver,
+      trips: myJobs.length,
+      paidTrips: paidJobs.length,
+      totalEarned,
+      paidAmount,
+      unpaidAmount
+    };
+  }).sort((a, b) => b.totalEarned - a.totalEarned);
+
+  const earningsTotal = earningsByDriver.reduce((s, e) => s + e.totalEarned, 0);
+  const earningsPaid = earningsByDriver.reduce((s, e) => s + e.paidAmount, 0);
+  const earningsUnpaid = earningsByDriver.reduce((s, e) => s + e.unpaidAmount, 0);
 
   if (!authed) {
     return (
@@ -257,6 +290,7 @@ export default function AdminPage() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <button onClick={() => setTab('drivers')}>Drivers ({drivers.length})</button>
         <button onClick={() => setTab('bookings')}>Bookings ({bookings.length})</button>
+        <button onClick={() => setTab('earnings')}>💰 Driver Earnings</button>
         <button onClick={() => setTab('complaints')}>Complaints ({complaints.length})</button>
         <button onClick={loadAll}>🔄 Refresh</button>
         <button onClick={() => { localStorage.removeItem('adminKey'); setAuthed(false); }}>Log Out</button>
@@ -264,6 +298,64 @@ export default function AdminPage() {
 
       {message && <p style={{ fontWeight: 'bold' }}>{message}</p>}
 
+      {/* ============ EARNINGS TAB ============ */}
+      {tab === 'earnings' && (
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+            <div style={{ background: '#e3f2fd', border: '2px solid #2196f3', padding: 16, borderRadius: 10, minWidth: 200 }}>
+              <div style={{ fontSize: 13, color: '#0d47a1' }}>💵 Total Earned by All Drivers</div>
+              <div style={{ fontSize: 22, fontWeight: 'bold', color: '#0d47a1', marginTop: 6 }}>{fmt(earningsTotal)}</div>
+            </div>
+            <div style={{ background: '#e8f5e9', border: '2px solid #4caf50', padding: 16, borderRadius: 10, minWidth: 200 }}>
+              <div style={{ fontSize: 13, color: '#2e7d32' }}>✅ Already Paid (customers)</div>
+              <div style={{ fontSize: 22, fontWeight: 'bold', color: '#1b5e20', marginTop: 6 }}>{fmt(earningsPaid)}</div>
+            </div>
+            <div style={{ background: '#fff8e1', border: '2px solid #ff9800', padding: 16, borderRadius: 10, minWidth: 200 }}>
+              <div style={{ fontSize: 13, color: '#e65100' }}>⏳ Still Pending</div>
+              <div style={{ fontSize: 22, fontWeight: 'bold', color: '#bf360c', marginTop: 6 }}>{fmt(earningsUnpaid)}</div>
+            </div>
+          </div>
+
+          <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a0d2e', color: 'white' }}>
+              <tr>
+                <th>Driver</th>
+                <th>Phone</th>
+                <th>Trips</th>
+                <th>Paid Trips</th>
+                <th>Total Earned</th>
+                <th>✅ Paid</th>
+                <th>⏳ Pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              {earningsByDriver.length === 0 ? (
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: 20 }}>No drivers yet.</td></tr>
+              ) : earningsByDriver.map(({ driver, trips, paidTrips, totalEarned, paidAmount, unpaidAmount }) => (
+                <tr key={driver._id}>
+                  <td><strong>{driver.name}</strong></td>
+                  <td>{driver.phone}</td>
+                  <td>{trips}</td>
+                  <td>{paidTrips}</td>
+                  <td style={{ fontWeight: 'bold', color: '#0d47a1' }}>{fmt(totalEarned)}</td>
+                  <td style={{ color: 'green', fontWeight: 'bold' }}>{fmt(paidAmount)}</td>
+                  <td style={{ color: 'orange', fontWeight: 'bold' }}>{fmt(unpaidAmount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#f5f5f5', fontWeight: 'bold' }}>
+                <td colSpan="4" style={{ textAlign: 'right' }}>TOTALS:</td>
+                <td style={{ color: '#0d47a1' }}>{fmt(earningsTotal)}</td>
+                <td style={{ color: 'green' }}>{fmt(earningsPaid)}</td>
+                <td style={{ color: 'orange' }}>{fmt(earningsUnpaid)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </>
+      )}
+
+      {/* ============ DRIVERS TAB ============ */}
       {tab === 'drivers' && (
         <>
           <div style={{ background: '#f5f5f7', padding: 20, borderRadius: 12, marginBottom: 20 }}>
@@ -355,6 +447,7 @@ export default function AdminPage() {
         </>
       )}
 
+      {/* ============ BOOKINGS TAB ============ */}
       {tab === 'bookings' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
@@ -394,6 +487,7 @@ export default function AdminPage() {
         </table>
       )}
 
+      {/* ============ COMPLAINTS TAB ============ */}
       {tab === 'complaints' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
