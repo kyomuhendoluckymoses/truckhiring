@@ -62,6 +62,7 @@ export default function AdminPage() {
 
   useEffect(() => { if (authed) loadAll(); }, [authed]);
 
+  // ─── ADD DRIVER ───
   async function registerDriver() {
     setFormMessage('');
     if (!newDriver.name || !newDriver.email || !newDriver.phone ||
@@ -90,16 +91,53 @@ export default function AdminPage() {
     }
   }
 
-  async function deleteDriver(id) {
-    if (!window.confirm('Delete this driver permanently?')) return;
-    await fetch(`${API}/admin/drivers/${id}`, { method: 'DELETE', headers: headers() });
+  // ─── SUSPEND ───
+  async function suspendDriver(id) {
+    if (!window.confirm('Suspend this driver? They cannot receive new jobs.')) return;
+    await fetch(`${API}/admin/drivers/${id}/suspend`, { method: 'PATCH', headers: headers() });
     loadAll();
   }
 
-  async function suspendDriver(id) {
-    if (!window.confirm('Suspend this driver?')) return;
-    await fetch(`${API}/admin/drivers/${id}/suspend`, { method: 'PATCH', headers: headers() });
+  // ─── UNSUSPEND ───
+  async function unsuspendDriver(id) {
+    if (!window.confirm('Reactivate this driver?')) return;
+    await fetch(`${API}/admin/drivers/${id}/unsuspend`, { method: 'PATCH', headers: headers() });
     loadAll();
+  }
+
+  // ─── DELETE (with active-jobs warning) ───
+  async function deleteDriver(id, name) {
+    const typed = window.prompt(
+      'Type the driver\'s name to confirm permanent deletion:\n\n' +
+      'Name: ' + name
+    );
+    if (typed !== name) {
+      alert('Name did not match. Deletion cancelled.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/admin/drivers/${id}`, {
+        method: 'DELETE',
+        headers: headers()
+      });
+
+      if (res.status === 409) {
+        const data = await res.json();
+        const force = window.confirm(
+          '⚠️ ' + data.message + '\n\nDelete anyway? Active jobs will be orphaned.'
+        );
+        if (!force) return;
+        await fetch(`${API}/admin/drivers/${id}?force=true`, {
+          method: 'DELETE',
+          headers: headers()
+        });
+      }
+
+      loadAll();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   }
 
   async function setPayment(id, status) {
@@ -158,6 +196,7 @@ export default function AdminPage() {
     <div style={{ padding: 24, fontFamily: 'Arial' }}>
       <h1>🛠️ Admin Dashboard</h1>
 
+      {/* Money summary */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ background: '#e8f5e9', border: '2px solid #4caf50', padding: 16, borderRadius: 10, minWidth: 200 }}>
           <div style={{ fontSize: 13, color: '#2e7d32' }}>💰 Money Collected</div>
@@ -173,6 +212,7 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <button onClick={() => setTab('drivers')}>Drivers ({drivers.length})</button>
         <button onClick={() => setTab('bookings')}>Bookings ({bookings.length})</button>
@@ -183,6 +223,7 @@ export default function AdminPage() {
 
       {message && <p>{message}</p>}
 
+      {/* DRIVERS TAB */}
       {tab === 'drivers' && (
         <>
           <div style={{
@@ -236,16 +277,28 @@ export default function AdminPage() {
                   <td>{d.email || '—'}</td>
                   <td>{d.phone}</td>
                   <td>{d.truckType}</td>
-                  <td style={{ color: d.availability === 'available' ? 'green' : d.availability === 'suspended' ? 'red' : '#666' }}>
+                  <td style={{
+                    color: d.availability === 'available' ? 'green' :
+                           d.availability === 'suspended' ? 'red' :
+                           d.availability === 'busy' ? 'darkorange' : '#666',
+                    fontWeight: 'bold'
+                  }}>
                     {d.availability}
                   </td>
                   <td>{new Date(d.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    <button onClick={() => suspendDriver(d._id)}
-                      style={{ background: '#ff9800', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', marginRight: 6 }}>
-                      Suspend
-                    </button>
-                    <button onClick={() => deleteDriver(d._id)}
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {d.availability !== 'suspended' ? (
+                      <button onClick={() => suspendDriver(d._id)}
+                        style={{ background: '#ff9800', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', marginRight: 6 }}>
+                        Suspend
+                      </button>
+                    ) : (
+                      <button onClick={() => unsuspendDriver(d._id)}
+                        style={{ background: '#2e7d32', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', marginRight: 6 }}>
+                        Reactivate
+                      </button>
+                    )}
+                    <button onClick={() => deleteDriver(d._id, d.name)}
                       style={{ background: 'crimson', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer' }}>
                       Delete
                     </button>
@@ -257,6 +310,7 @@ export default function AdminPage() {
         </>
       )}
 
+      {/* BOOKINGS TAB */}
       {tab === 'bookings' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>
@@ -296,6 +350,7 @@ export default function AdminPage() {
         </table>
       )}
 
+      {/* COMPLAINTS TAB */}
       {tab === 'complaints' && (
         <table border="1" cellPadding="8" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ background: '#1a0d2e', color: 'white' }}>

@@ -16,7 +16,9 @@ function requireAdmin(req, res, next) {
 
 router.use(requireAdmin);
 
-// ─── DRIVERS ───
+// ─────────── DRIVERS ───────────
+
+// List all drivers
 router.get('/drivers', async (req, res) => {
   try {
     const drivers = await Driver.find().sort({ createdAt: -1 });
@@ -26,7 +28,7 @@ router.get('/drivers', async (req, res) => {
   }
 });
 
-// Register a driver (admin creates driver)
+// Admin registers a new driver
 router.post('/drivers', async (req, res) => {
   try {
     const { name, email, phone, password, truckType } = req.body;
@@ -40,13 +42,10 @@ router.post('/drivers', async (req, res) => {
     const cleanEmail = email.toLowerCase().trim();
     const cleanPhone = phone.trim();
 
-    const existingEmail = await Driver.findOne({ email: cleanEmail });
-    if (existingEmail) {
+    if (await Driver.findOne({ email: cleanEmail })) {
       return res.status(400).json({ message: 'Email already registered' });
     }
-
-    const existingPhone = await Driver.findOne({ phone: cleanPhone });
-    if (existingPhone) {
+    if (await Driver.findOne({ phone: cleanPhone })) {
       return res.status(400).json({ message: 'Phone already registered' });
     }
 
@@ -66,16 +65,7 @@ router.post('/drivers', async (req, res) => {
   }
 });
 
-router.delete('/drivers/:id', async (req, res) => {
-  try {
-    const driver = await Driver.findByIdAndDelete(req.params.id);
-    if (!driver) return res.status(404).json({ message: 'Driver not found' });
-    res.json({ message: 'Driver deleted', driver });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
+// Suspend (soft block) — driver can't get new jobs but stays in system
 router.patch('/drivers/:id/suspend', async (req, res) => {
   try {
     const driver = await Driver.findByIdAndUpdate(
@@ -90,7 +80,48 @@ router.patch('/drivers/:id/suspend', async (req, res) => {
   }
 });
 
-// ─── BOOKINGS ───
+// Unsuspend (bring back to offline)
+router.patch('/drivers/:id/unsuspend', async (req, res) => {
+  try {
+    const driver = await Driver.findByIdAndUpdate(
+      req.params.id,
+      { availability: 'offline' },
+      { new: true }
+    );
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    res.json({ message: 'Driver reactivated', driver });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Delete permanently — warns if the driver has active jobs
+router.delete('/drivers/:id', async (req, res) => {
+  try {
+    const driver = await Driver.findById(req.params.id);
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+
+    // Check for active jobs
+    const activeJobs = await Booking.countDocuments({
+      driverId: driver._id,
+      status: { $in: ['Confirmed', 'Broadcasting', 'Sent to driver', 'Sent to next driver'] }
+    });
+
+    if (activeJobs > 0 && req.query.force !== 'true') {
+      return res.status(409).json({
+        message: `This driver has ${activeJobs} active job(s). Add ?force=true to confirm deletion.`,
+        activeJobs
+      });
+    }
+
+    await Driver.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Driver deleted', driver });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ─────────── BOOKINGS ───────────
 router.get('/bookings', async (req, res) => {
   try {
     const bookings = await Booking.find().sort({ createdAt: -1 });
@@ -115,7 +146,7 @@ router.patch('/bookings/:id/payment', async (req, res) => {
   }
 });
 
-// ─── COMPLAINTS ───
+// ─────────── COMPLAINTS ───────────
 router.get('/complaints', async (req, res) => {
   try {
     const complaints = await Complaint.find().sort({ createdAt: -1 });
